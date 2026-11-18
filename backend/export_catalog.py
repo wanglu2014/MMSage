@@ -1,6 +1,4 @@
-"""
-Archive pipeline JSON outputs into data/results_catalog/ for browse & reuse.
-"""
+
 
 from __future__ import annotations
 
@@ -88,7 +86,7 @@ def _index_record(run_id: str, item: dict, meta: dict) -> dict:
 
 
 def rebuild_index() -> dict:
-    """Rebuild catalog index.json from all archived runs."""
+    pass
     records: List[dict] = []
     runs_meta: List[dict] = []
 
@@ -132,10 +130,7 @@ def archive_run(
     pipeline_status: Optional[dict] = None,
     run_id: Optional[str] = None,
 ) -> str:
-    """
-    Copy pipeline outputs into data/results_catalog/runs/<run_id>/ and refresh index.
-    Returns the run_id used.
-    """
+    pass
     out = Path(output_dir)
     if not (out / "step3_quadrant.json").exists():
         raise FileNotFoundError(f"step3_quadrant.json not found in {out}")
@@ -259,7 +254,7 @@ def get_run_candidates(run_id: str) -> List[dict]:
 
 
 def _pair_keys(row: dict) -> tuple:
-    """Resolve bacteria / metabolite from a pipeline row or nested candidate."""
+    pass
     b = row.get("bacteria")
     m = row.get("metabolite")
     cand = row.get("candidate")
@@ -302,10 +297,7 @@ def _index_record_for_pair(run_id: str, bacteria: str, metabolite: str) -> Optio
 
 
 def build_record_export(run_id: str, bacteria: str, metabolite: str) -> Optional[dict]:
-    """
-    Extract this microbe–metabolite pair from archived run JSON files and merge
-    into one downloadable document.
-    """
+    pass
     run_dir = RUNS_DIR / run_id
     if not run_dir.is_dir():
         return None
@@ -389,7 +381,7 @@ def _merge_step2_fields(item: dict, step2_row: dict) -> None:
 
 
 def _build_step3_detail(item: dict) -> dict:
-    """Structured evidence payload for catalog detail UI (full archived content)."""
+    pass
     ae = item.get("agent_evidence") or {}
     if not isinstance(ae, dict):
         ae = {}

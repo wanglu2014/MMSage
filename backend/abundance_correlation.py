@@ -1,4 +1,4 @@
-"""Independent microbe--metabolite correlation ranking."""
+
 from pathlib import Path
 import pandas as pd
 from scipy.stats import spearmanr
@@ -46,7 +46,7 @@ def rank_correlations(microbe_path: str | Path, metabolite_path: str | Path) -> 
     if result.empty:
         return pd.DataFrame(columns=["rank", "microbe_id", "metabolite_id", "rho", "p_value", "fdr", "direction", "n_samples"])
     result = result.sort_values(["p_value", "rho"], ascending=[True, False]).reset_index(drop=True)
-    # Benjamini-Hochberg correction without an additional dependency.
+    
     m = len(result)
     ranks = pd.Series(range(1, m + 1), index=result.index)
     result["fdr"] = (result["p_value"] * m / ranks).iloc[::-1].cummin().iloc[::-1].clip(upper=1.0)

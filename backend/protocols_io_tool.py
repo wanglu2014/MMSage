@@ -1,6 +1,4 @@
-"""
-Read-only protocols.io retrieval for Step 3 experimental design.
-"""
+
 
 from __future__ import annotations
 

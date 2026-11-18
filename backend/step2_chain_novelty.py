@@ -1,14 +1,4 @@
-"""
-Step 2: Chain Novelty Scoring
-==============================
-For each candidate bacteria-metabolite pair:
-1. Find KG path(s) via KnowledgePump
-2. Query PubMed for full-chain co-occurrence (primary metric)
-3. Query PubMed for per-edge co-occurrence (auxiliary, locate bottleneck)
-4. Compute Chain Novelty = 1 - log(1+chain_count)/log(1+C_max)
 
-PubMed queries use Biopython Entrez API with local JSON cache.
-"""
 
 import json
 import os
@@ -33,7 +23,7 @@ try:
 except ImportError:
     HAS_SAPBERT = False
 
-# ---- Configuration ----
+
 
 ENTREZ_EMAIL = os.getenv("ENTREZ_EMAIL", "").strip() or "entrez-not-configured@invalid"
 ENTREZ_API_KEY = None
@@ -46,7 +36,7 @@ QUERY_DELAY_S = 0.35
 EXPERIMENTAL_FILTER = ' AND ("in vivo" OR "in vitro" OR "mouse" OR "mice" OR "cell line" OR "experiment" OR "clinical trial")'
 
 
-# ---- SapBERT-driven synonym expansion (replaces hardcoded DEFAULT_SYNONYMS) ----
+
 
 _sapbert_syn_cache: Dict[str, List[str]] = {}
 _sapbert_syn_cache_loaded = False
@@ -73,11 +63,7 @@ def _save_sapbert_syn_cache():
 
 
 def _sapbert_synonyms(entity_name: str, entity_type: str = None) -> List[str]:
-    """
-    Get synonyms using SapBERT semantic retrieval from the pre-built index.
-    Falls back to [entity_name] when SapBERT is unavailable.
-    Results are cached locally to avoid repeated model calls.
-    """
+    pass
     _load_sapbert_syn_cache()
     cache_key = f"{entity_name}|{entity_type or 'any'}"
     if cache_key in _sapbert_syn_cache:
@@ -105,7 +91,7 @@ def _sapbert_synonyms(entity_name: str, entity_type: str = None) -> List[str]:
     return syns
 
 
-# ---- Data classes ----
+
 
 @dataclass
 class EdgeCooccurrence:
@@ -119,31 +105,31 @@ class EdgeCooccurrence:
 class ChainNoveltyResult:
     bacteria: str
     metabolite: str
-    # Chain structure
+    
     chain_path: List[str] = field(default_factory=list)
     chain_path_str: str = ""
     disease: str = DEFAULT_DISEASE
     query_terms: List[str] = field(default_factory=list)
     has_path: bool = False
-    # Primary metric: full-chain co-occurrence
+    
     chain_count: int = 0
     chain_novelty: float = 1.0
     chain_query: str = ""
-    # Auxiliary: per-edge co-occurrence
+    
     edge_cooccurrences: List[Dict[str, Any]] = field(default_factory=list)
     bottleneck_edge: Optional[Dict[str, Any]] = None
-    # All candidate paths considered
+    
     all_paths_info: List[Dict[str, Any]] = field(default_factory=list)
 
 
-# ---- PubMed query ----
+
 
 _pubmed_cache: Dict[str, int] = {}
 _cache_loaded = False
 
 
 def _load_cache() -> None:
-    """Load PubMed query cache from disk."""
+    pass
     global _pubmed_cache, _cache_loaded
     if _cache_loaded:
         return
@@ -159,37 +145,25 @@ def _load_cache() -> None:
 
 
 def _save_cache() -> None:
-    """Save PubMed query cache to disk."""
+    pass
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     with open(CACHE_FILE, 'w', encoding='utf-8') as f:
         json.dump(_pubmed_cache, f, indent=2, ensure_ascii=False)
 
 
 def _cache_key(query: str) -> str:
-    """Generate cache key from query string."""
+    pass
     return hashlib.md5(query.encode('utf-8')).hexdigest()
 
 
 def build_pubmed_query(terms: List[str], synonym_map: Dict[str, List[str]] = None) -> str:
-    """
-    Build PubMed query from a list of entity names.
-
-    Each term is expanded to its synonyms (OR-joined) via SapBERT,
-    then all groups are AND-joined.  The optional synonym_map provides
-    additional overrides but is no longer the primary source.
-
-    Example:
-        terms = ["Akkermansia_muciniphila", "isobutyric acid", "IBD"]
-        ->  ("Akkermansia muciniphila" OR "Akkermansia") AND
-            ("isobutyric acid" OR "isobutyrate") AND
-            ("IBD" OR "inflammatory bowel disease")
-    """
+    pass
     if synonym_map is None:
         synonym_map = {}
 
     groups = []
     for term in terms:
-        # Priority 1: explicit synonym_map override
+        
         synonyms = synonym_map.get(term)
         if not synonyms:
             term_lower = term.lower().strip()
@@ -198,11 +172,11 @@ def build_pubmed_query(terms: List[str], synonym_map: Dict[str, List[str]] = Non
                     synonyms = vals
                     break
 
-        # Priority 2: SapBERT dynamic synonym expansion
+        
         if not synonyms:
             entity_type = None
             tl = term.lower().replace("_", " ")
-            # Generic disease detection: common suffixes/keywords across diseases
+            
             _disease_hints = ("disease", "syndrome", "disorder", "itis",
                               "osis", "emia", "uria", "pathy", "cancer",
                               "tumor", "carcinoma", "lymphoma", "leukemia")
@@ -223,12 +197,7 @@ def query_pubmed_count(
     query: str,
     use_cache: bool = True,
 ) -> int:
-    """
-    Query PubMed for the number of articles matching the query.
-
-    Uses Biopython Entrez.esearch with local JSON cache.
-    Falls back to 0 if Entrez is not available or query fails.
-    """
+    pass
     _load_cache()
 
     key = _cache_key(query)
@@ -257,10 +226,10 @@ def query_pubmed_count(
     return count
 
 
-# ---- Chain Novelty computation ----
+
 
 def _get_node_label(kg: KnowledgePump, node_id: str) -> str:
-    """Get human-readable label for a KG node."""
+    pass
     node = kg.get_node(node_id)
     if node:
         return node.get('label', node_id)
@@ -268,25 +237,19 @@ def _get_node_label(kg: KnowledgePump, node_id: str) -> str:
 
 
 def _kg_id_to_pubmed_term(node_id: str, bacteria_orig: str, metabolite_orig: str) -> str:
-    """
-    Convert a KG node ID back to a proper PubMed search term.
-
-    KG node IDs are lowercase_underscore (e.g. 'l_carnitine', 'akkermansia_muciniphila').
-    For bacteria/metabolite nodes, use the original candidate name instead.
-    For pathway nodes, convert underscores to spaces and title-case.
-    """
-    # Check if this node matches the bacteria
+    pass
+    
     bact_normalized = bacteria_orig.lower().replace("_", " ").replace("-", " ")
     node_normalized = node_id.lower().replace("_", " ")
     if node_normalized == bact_normalized or node_normalized == bact_normalized.split()[0]:
         return bacteria_orig.replace("_", " ")
 
-    # Check if this node matches the metabolite
+    
     met_normalized = metabolite_orig.lower().replace("_", " ").replace("-", " ")
     if node_normalized == met_normalized:
-        return metabolite_orig  # preserve original casing/hyphens like "L-Carnitine"
+        return metabolite_orig  
 
-    # For pathway/other nodes, convert underscore to space
+    
     return node_id.replace("_", " ")
 
 
@@ -297,41 +260,29 @@ def _compute_pairwise_counts(
     synonym_map: Dict[str, List[str]],
     path_node_labels: List[str] = None,
 ) -> Dict[str, int]:
-    """
-    Query PubMed for multiple keyword combinations (not just full-chain AND).
-
-    Queries issued (both raw and experimental-filtered):
-      1. bacteria + metabolite  (direct pair)
-      2. bacteria + metabolite + disease  (triple)
-      3. bacteria + disease  (microbe-disease context)
-      4. metabolite + disease  (metabolite-disease context)
-      5. If path exists: full-chain AND (all path nodes + disease)
-
-    Returns:
-        Dict mapping query_type -> count (includes _exp variants)
-    """
+    pass
     counts = {}
 
-    # 1. bacteria + metabolite
+    
     q = build_pubmed_query([bacteria, metabolite], synonym_map)
     counts['pair_bm'] = query_pubmed_count(q)
     counts['pair_bm_exp'] = query_pubmed_count(q + EXPERIMENTAL_FILTER)
 
-    # 2. bacteria + metabolite + disease
+    
     q = build_pubmed_query([bacteria, metabolite, disease], synonym_map)
     counts['triple_bmd'] = query_pubmed_count(q)
     counts['triple_bmd_exp'] = query_pubmed_count(q + EXPERIMENTAL_FILTER)
 
-    # 3. bacteria + disease
+    
     q = build_pubmed_query([bacteria, disease], synonym_map)
     counts['pair_bd'] = query_pubmed_count(q)
 
-    # 4. metabolite + disease
+    
     q = build_pubmed_query([metabolite, disease], synonym_map)
     counts['pair_md'] = query_pubmed_count(q)
     counts['pair_md_exp'] = query_pubmed_count(q + EXPERIMENTAL_FILTER)
 
-    # 5. Full-chain AND (if path exists and has intermediate nodes)
+    
     if path_node_labels and len(path_node_labels) > 2:
         q = build_pubmed_query(path_node_labels + [disease], synonym_map)
         counts['full_chain'] = query_pubmed_count(q)
@@ -341,13 +292,7 @@ def _compute_pairwise_counts(
 
 
 def _aggregate_chain_count(pairwise: Dict[str, int]) -> int:
-    """
-    Aggregate pairwise PubMed counts into a single chain_count.
-
-    Strategy: use triple_bmd_exp (bacteria + metabolite + disease,
-    experimental papers only). This reflects whether the specific
-    bacteria-metabolite-disease chain has been experimentally validated.
-    """
+    pass
     return pairwise.get('triple_bmd_exp', 0)
 
 
@@ -359,19 +304,8 @@ def find_best_chain(
     synonym_map: Dict[str, List[str]],
     max_depth: int = 3,
 ) -> Dict[str, Any]:
-    """
-    Find the best KG path and compute chain_count using multi-level PubMed queries.
-
-    Strategy:
-    1. Find KG paths between bacteria and metabolite
-    2. Query PubMed for multiple combinations (pair, triple, full-chain)
-    3. chain_count = max of all relevant queries
-
-    Returns:
-        Dict with 'chain_path', 'chain_count', 'chain_query', 'all_paths',
-        'pairwise_counts'
-    """
-    # Normalize names: try original, then lowercase/underscore variants
+    pass
+    
     name_variants_b = [bacteria, bacteria.lower(), bacteria.lower().replace(" ", "_")]
     name_variants_m = [metabolite, metabolite.lower(), metabolite.lower().replace(" ", "_"),
                        metabolite.lower().replace("-", "_").replace(" ", "_")]
@@ -386,11 +320,11 @@ def find_best_chain(
             break
 
     if not paths:
-        # No KG path, but still query PubMed for pairwise counts
+        
         pairwise = _compute_pairwise_counts(
             bacteria, metabolite, disease, synonym_map)
         agg_count = _aggregate_chain_count(pairwise)
-        # Build the query string for the best count
+        
         best_query = build_pubmed_query([bacteria, metabolite], synonym_map)
 
         return {
@@ -408,7 +342,7 @@ def find_best_chain(
     best_pairwise = {}
 
     for path_tuples in paths:
-        # Extract unique node IDs from path
+        
         node_ids = []
         for src, rel, tgt in path_tuples:
             if src not in node_ids:
@@ -416,16 +350,16 @@ def find_best_chain(
             if tgt not in node_ids:
                 node_ids.append(tgt)
 
-        # Convert KG node IDs to proper PubMed search terms
+        
         node_labels = [_kg_id_to_pubmed_term(nid, bacteria, metabolite) for nid in node_ids]
 
-        # Compute pairwise counts including full-chain
+        
         pairwise = _compute_pairwise_counts(
             bacteria, metabolite, disease, synonym_map,
             path_node_labels=node_labels)
         agg_count = _aggregate_chain_count(pairwise)
 
-        # Build full-chain query string for display
+        
         query_terms = node_labels + [disease]
         query = build_pubmed_query(query_terms, synonym_map)
 
@@ -468,19 +402,7 @@ def compute_edge_counts(
     bacteria_orig: str = "",
     metabolite_orig: str = "",
 ) -> List[EdgeCooccurrence]:
-    """
-    Compute per-edge PubMed co-occurrence for each edge in the path.
-
-    Args:
-        path_tuples: List of (source, relation, target) from KG
-        kg: KnowledgePump instance
-        synonym_map: PubMed synonym expansions
-        bacteria_orig: Original bacteria name for proper term conversion
-        metabolite_orig: Original metabolite name for proper term conversion
-
-    Returns:
-        List of EdgeCooccurrence, one per edge
-    """
+    pass
     results = []
     for src, rel, tgt in path_tuples:
         src_label = _kg_id_to_pubmed_term(src, bacteria_orig, metabolite_orig)
@@ -498,19 +420,14 @@ def compute_edge_counts(
 
 
 def normalize_novelty(chain_count: int, c_max: int) -> float:
-    """
-    Compute Chain Novelty from chain_count and C_max.
-
-    Formula: 1 - log(1 + chain_count) / log(1 + C_max)
-    Boundary: if C_max = 0, return 1.0
-    """
+    pass
     if c_max <= 0:
         return 1.0
     return 1.0 - math.log(1 + chain_count) / math.log(1 + c_max)
 
 
 
-# ---- Main step2 function ----
+
 
 def run_step2(
     candidates_path: str,
@@ -520,33 +437,18 @@ def run_step2(
     max_depth: int = 3,
     synonym_map_path: Optional[str] = None,
 ) -> list:
-    """
-    Run step 2: compute Chain Novelty for all candidates.
-
-    Requires: Biopython (Entrez) for PubMed queries.
-
-    Args:
-        candidates_path: Path to step1 output JSON
-        gml_path: Path to knowledge graph GML
-        output_path: Path to save step2 output JSON
-        disease: Disease context for PubMed queries (default: IBD)
-        max_depth: Max KG path depth
-        synonym_map_path: Optional path to synonym_map.json
-
-    Returns:
-        List of ChainNoveltyResult dicts
-    """
+    pass
     print("=" * 60)
     print("  STEP 2: Chain Novelty Scoring")
     print("=" * 60)
 
-    # Load inputs
+    
     with open(candidates_path, 'r', encoding='utf-8') as f:
         candidates = json.load(f)
 
     kg = KnowledgePump(gml_path)
 
-    # Load synonym map (optional overrides; SapBERT provides dynamic synonyms)
+    
     synonym_map: Dict[str, List[str]] = {}
     if synonym_map_path:
         try:
@@ -563,7 +465,7 @@ def run_step2(
             "Biopython is required for PubMed queries. "
             "Install with: pip install biopython")
 
-    # Phase 1: Find paths and compute chain_count for all candidates
+    
     print(f"\nPhase 1: Finding KG paths and chain co-occurrence for {len(candidates)} candidates...")
     results: List[Dict[str, Any]] = []
 
@@ -573,7 +475,7 @@ def run_step2(
 
         chain_info = find_best_chain(bacteria, metabolite, disease, kg, synonym_map, max_depth)
 
-        # Compute edge-level co-occurrence for best path
+        
         edge_coocs = []
         bottleneck = None
         if chain_info['has_path'] and chain_info.get('path_tuples'):
@@ -582,7 +484,7 @@ def run_step2(
                 bacteria_orig=bacteria, metabolite_orig=metabolite,
             )
 
-            # Find bottleneck edge (lowest co-occurrence)
+            
             if edge_coocs:
                 bottleneck = min(edge_coocs, key=lambda e: e.cooccurrence)
 
@@ -596,7 +498,7 @@ def run_step2(
             'query_terms': chain_info['chain_path'] + [disease] if chain_info['chain_path'] else [],
             'has_path': chain_info['has_path'],
             'chain_count': chain_info['chain_count'],
-            'chain_novelty': 1.0,  # will be normalized in phase 2
+            'chain_novelty': 1.0,  
             'chain_query': chain_info['chain_query'],
             'pairwise_counts': chain_info.get('pairwise_counts', {}),
             'edge_cooccurrences': [asdict(e) for e in edge_coocs],
@@ -611,7 +513,7 @@ def run_step2(
 
     _save_cache()
 
-    # Phase 2: Normalize Chain Novelty
+    
     print(f"\nPhase 2: Normalizing Chain Novelty...")
     all_chain_counts = [r['chain_count'] for r in results]
     c_max = max(all_chain_counts) if all_chain_counts else 0
@@ -620,7 +522,7 @@ def run_step2(
     for r in results:
         r['chain_novelty'] = round(normalize_novelty(r['chain_count'], c_max), 4)
 
-    # Summary
+    
     has_path_count = sum(1 for r in results if r['has_path'])
     dark_matter_count = sum(1 for r in results if r['chain_count'] == 0)
     print(f"\nResults:")
@@ -631,7 +533,7 @@ def run_step2(
               f"{min(r['chain_novelty'] for r in results):.4f} - "
               f"{max(r['chain_novelty'] for r in results):.4f}")
 
-    # Save
+    
     output_file = Path(output_path)
     output_file.parent.mkdir(parents=True, exist_ok=True)
     with open(output_file, 'w', encoding='utf-8') as f:

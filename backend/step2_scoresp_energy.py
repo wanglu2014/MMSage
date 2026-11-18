@@ -1,9 +1,4 @@
-"""
-Step 2: ScoreSP Path Energy Scoring
-=====================================
-Compute ScoreSP = E_path / R_path for each candidate pair
-using knowledge graph path analysis.
-"""
+
 
 import json
 import math
@@ -17,28 +12,23 @@ CURRENT_YEAR = 2026
 
 
 def load_knowledge_graph(gml_path: str) -> nx.DiGraph:
-    """Load GML knowledge graph."""
+    pass
     G = nx.read_gml(gml_path)
     print(f"Loaded KG: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
     return G
 
 
 def find_node_id(G: nx.DiGraph, name: str, node_type: Optional[str] = None) -> Optional[str]:
-    """
-    Find node ID by name matching. Uses two passes:
-    1. Exact match (case/space/dash insensitive)
-    2. Synonym matching (acid/ate, common name variants)
-    Avoids substring matching to prevent false positives.
-    """
+    pass
     def normalize(s: str) -> str:
         return s.lower().strip().replace(' ', '_').replace('-', '_')
 
     def _acid_ate_variants(n: str) -> list:
-        """Generate acid/conjugate-base name variants dynamically."""
+        pass
         variants = []
         if n.endswith('_acid'):
-            stem = n[:-5]  # remove '_acid'
-            # propionic_acid -> propionate, butyric_acid -> butyrate, etc.
+            stem = n[:-5]  
+            
             if stem.endswith('ic'):
                 variants.append(stem[:-2] + 'ate')
             elif stem.endswith('ous'):
@@ -53,7 +43,7 @@ def find_node_id(G: nx.DiGraph, name: str, node_type: Optional[str] = None) -> O
 
     name_norm = normalize(name)
 
-    # Pass 1: exact match on node ID or label
+    
     for node_id, attrs in G.nodes(data=True):
         if node_type and attrs.get('type', '') != node_type:
             continue
@@ -63,7 +53,7 @@ def find_node_id(G: nx.DiGraph, name: str, node_type: Optional[str] = None) -> O
         if nid_norm == name_norm or (label_norm and label_norm == name_norm):
             return node_id
 
-    # Pass 2: dynamic acid/salt synonym match
+    
     for variant in _acid_ate_variants(name_norm):
         for node_id, attrs in G.nodes(data=True):
             if node_type and attrs.get('type', '') != node_type:
@@ -77,9 +67,7 @@ def find_node_id(G: nx.DiGraph, name: str, node_type: Optional[str] = None) -> O
 
 
 def extract_khop_subgraph(G: nx.DiGraph, seed_nodes: List[str], max_hop: int = 2) -> nx.DiGraph:
-    """
-    Extract K-hop subgraph from seed nodes.
-    """
+    pass
     visited = set()
     frontier = set(seed_nodes)
 
@@ -105,20 +93,15 @@ def find_paths(
     max_depth: int = 4,
     exclude_types: Optional[List[str]] = None,
 ) -> List[List[str]]:
-    """
-    Find simple paths between source and target (undirected search).
-    Excludes intermediate nodes of specified types (e.g. 'disease') to avoid
-    biologically meaningless paths through hub disease nodes.
-    Returns list of unique node-id paths, deduplicated.
-    """
+    pass
     if source not in G or target not in G:
         return []
 
     if exclude_types is None:
         exclude_types = ['disease']
 
-    # Build filtered subgraph: remove disease-type intermediate nodes
-    # but keep source and target even if they are disease nodes
+    
+    
     nodes_to_keep = set()
     for n, d in G.nodes(data=True):
         ntype = d.get('type', '')
@@ -129,10 +112,10 @@ def find_paths(
 
     G_filtered = G.subgraph(nodes_to_keep)
 
-    # Search on undirected view for reachability
+    
     G_undirected = G_filtered.to_undirected(as_view=True)
 
-    # For MultiGraph, convert to simple Graph to avoid duplicate paths
+    
     if isinstance(G_undirected, nx.MultiGraph):
         G_simple = nx.Graph(G_undirected)
     else:
@@ -140,7 +123,7 @@ def find_paths(
 
     try:
         paths = list(nx.all_simple_paths(G_simple, source, target, cutoff=max_depth))
-        # Deduplicate (same node sequence)
+        
         seen = set()
         unique_paths = []
         for p in paths:
@@ -148,7 +131,7 @@ def find_paths(
             if key not in seen:
                 seen.add(key)
                 unique_paths.append(p)
-        # Sort by length (shortest first)
+        
         unique_paths.sort(key=len)
         return unique_paths[:5]
     except (nx.NetworkXError, nx.NodeNotFound):
@@ -158,22 +141,18 @@ def find_paths(
 
 
 def compute_node_weight(G, node_id: str) -> Tuple[float, float, float]:
-    """
-    Compute node weight w_i = Novelty_i * (1 + Cred_i).
-
-    Returns: (w_i, novelty, cred)
-    """
+    pass
     if node_id not in G:
         return (0.0, 0.0, 0.0)
 
-    # Novelty: 1 if terminal node (out_degree=0), else 0
-    # Per spec: only out_degree matters
+    
+    
     out_deg = G.out_degree(node_id)
     novelty = 1.0 if out_deg == 0 else 0.0
 
-    # Credibility: average impact_factor of connected edges
+    
     ifs = []
-    # Outgoing edges
+    
     if isinstance(G, (nx.MultiDiGraph, nx.MultiGraph)):
         for _, target, key, edata in G.edges(node_id, data=True, keys=True):
             if_val = edata.get('edge_impact_factor', 0)
@@ -200,7 +179,7 @@ def compute_node_weight(G, node_id: str) -> Tuple[float, float, float]:
 
 
 def _get_edge_data_list(G, source: str, target: str) -> List[Dict[str, Any]]:
-    """Get all edge data dicts between source and target (handles MultiDiGraph)."""
+    pass
     results = []
     if G.has_edge(source, target):
         if isinstance(G, nx.MultiDiGraph) or isinstance(G, nx.MultiGraph):
@@ -218,19 +197,12 @@ def _get_edge_data_list(G, source: str, target: str) -> List[Dict[str, Any]]:
 
 
 def compute_edge_resistance(G, source: str, target: str) -> Tuple[float, float, float]:
-    """
-    Compute edge resistance r_e = 1 / (1 + Support_e).
-
-    Support_e = sum(RefImp) for all references on edge.
-    RefImp = IF * citations / (delta_year + 1).
-
-    Returns: (r_e, support_e, ref_imp)
-    """
+    pass
     edge_data_list = _get_edge_data_list(G, source, target)
     if not edge_data_list:
         return (1.0, 0.0, 0.0)
 
-    # Sum RefImp across all parallel edges (multiple references)
+    
     total_ref_imp = 0.0
     for edata in edge_data_list:
         impact_factor = float(edata.get('edge_impact_factor', 0))
@@ -255,16 +227,12 @@ def compute_scoresp_for_path(
     G: nx.DiGraph,
     path_nodes: List[str],
 ) -> Dict[str, Any]:
-    """
-    Compute ScoreSP for a single path.
-
-    Returns dict with score details.
-    """
+    pass
     if len(path_nodes) < 2:
         return {'score_sp': 0.0, 'e_path': 0.0, 'r_path': 0.0, 'synergy': 0.0,
                 'nodes_detail': [], 'edges_detail': []}
 
-    # Node weights
+    
     nodes_detail = []
     novel_count = 0
     sum_wi_sq = 0.0
@@ -281,20 +249,20 @@ def compute_scoresp_for_path(
             'w_i': round(w_i, 4),
         })
 
-    # Synergy = sqrt(m) where m = number of novel nodes; 0 if no novel nodes
+    
     synergy = math.sqrt(novel_count) if novel_count > 0 else 0.0
 
-    # E_path
+    
     e_path = synergy * sum_wi_sq
 
-    # Edge resistances
+    
     edges_detail = []
     r_path = 0.0
     for i in range(len(path_nodes) - 1):
         src, tgt = path_nodes[i], path_nodes[i + 1]
         r_e, support_e, ref_imp = compute_edge_resistance(G, src, tgt)
         r_path += r_e
-        # Collect PMIDs from edge data
+        
         pmids = []
         for edata in _get_edge_data_list(G, src, tgt):
             pmid = edata.get('pmid', '')
@@ -309,13 +277,13 @@ def compute_scoresp_for_path(
             'pmids': pmids,
         })
 
-    # ScoreSP = E_path / R_path
-    # When E_path=0 but path exists (no terminal nodes), use 1/R_path as
-    # fallback score so paths with strong evidence still rank above no-path
+    
+    
+    
     if e_path > 0 and r_path > 0:
         score_sp = e_path / r_path
     elif r_path > 0:
-        # Path exists but no novel (terminal) nodes: use inverse resistance
+        
         score_sp = 1.0 / r_path
     else:
         score_sp = 0.0
@@ -337,10 +305,8 @@ def compute_scoresp_for_candidate(
     max_hop: int = 2,
     max_path_depth: int = 4,
 ) -> Dict[str, Any]:
-    """
-    Compute ScoreSP for a candidate bacteria-metabolite pair.
-    """
-    # Find node IDs in graph
+    pass
+    
     bact_id = find_node_id(G, bacteria, 'microbe')
     meta_id = find_node_id(G, metabolite, 'metabolite')
 
@@ -361,16 +327,16 @@ def compute_scoresp_for_candidate(
     if not bact_id or not meta_id:
         return result
 
-    # Extract K-hop subgraph
+    
     subgraph = extract_khop_subgraph(G, [bact_id, meta_id], max_hop)
 
-    # Find paths between bacteria and metabolite only
+    
     paths = find_paths(subgraph, bact_id, meta_id, max_path_depth)
 
     if not paths:
         return result
 
-    # Compute ScoreSP for each path, keep the best
+    
     best_score = -1
     best_path_result = None
     all_paths_info = []
@@ -409,30 +375,18 @@ def run_step2(
     subgraph_output_path: Optional[str] = None,
     max_hop: int = 2,
 ) -> list:
-    """
-    Run step 2: compute ScoreSP for all candidates.
-
-    Args:
-        candidates_path: Path to step1 output JSON
-        gml_path: Path to knowledge graph GML
-        output_path: Path to save step2 output JSON
-        subgraph_output_path: Optional path to save merged subgraph GML
-        max_hop: K-hop neighborhood size
-
-    Returns:
-        List of scored candidate dicts
-    """
+    pass
     print("=" * 60)
     print("  STEP 2: ScoreSP Path Energy Scoring")
     print("=" * 60)
 
-    # Load inputs
+    
     with open(candidates_path, 'r', encoding='utf-8') as f:
         candidates = json.load(f)
 
     G = load_knowledge_graph(gml_path)
 
-    # Process each candidate
+    
     results = []
     for i, cand in enumerate(candidates):
         scoresp_result = compute_scoresp_for_candidate(
@@ -446,13 +400,13 @@ def run_step2(
         if (i + 1) % 50 == 0:
             print(f"  Processed {i + 1}/{len(candidates)} candidates")
 
-    # Summary
+    
     has_path_count = sum(1 for r in results if r['has_path'])
     print(f"\nResults: {has_path_count}/{len(results)} candidates have KG paths")
     print(f"ScoreSP range: {min(r['score_sp'] for r in results):.4f} - "
           f"{max(r['score_sp'] for r in results):.4f}")
 
-    # Save results
+    
     output_file = Path(output_path)
     output_file.parent.mkdir(parents=True, exist_ok=True)
     with open(output_file, 'w', encoding='utf-8') as f:
@@ -460,9 +414,9 @@ def run_step2(
 
     print(f"Saved {len(results)} scored candidates to {output_path}")
 
-    # Optionally save merged subgraph
+    
     if subgraph_output_path:
-        # Collect all nodes mentioned in paths
+        
         all_path_nodes = set()
         for r in results:
             for n in r.get('path_nodes', []):

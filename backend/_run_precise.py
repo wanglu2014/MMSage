@@ -1,4 +1,4 @@
-"""Build KG with precise single query: Akk + IBD full synonyms + experimental."""
+
 import sys, io, time
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace', line_buffering=True)
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace', line_buffering=True)
@@ -37,7 +37,7 @@ print(f"  Query: {QUERY[:120]}...")
 
 pool = DeepSeekPool(Path(str(DEFAULT_KEYS_CSV)))
 
-# Phase 1: synonym expansion
+
 print("\nPhase 1: SapBERT synonym expansion...")
 bacteria_set: Set[str] = {"Akkermansia_muciniphila"}
 metabolite_set: Set[str] = set()
@@ -45,17 +45,17 @@ disease = "IBD"
 bacteria_names, metabolite_names, disease_terms = expand_entity_names(
     bacteria_set, metabolite_set, disease)
 
-# Phase 2: single precise query
+
 print(f"\nPhase 2: PubMed search...")
 pmids = search_pubmed(QUERY, max_results=500)
 print(f"  Found {len(pmids)} PMIDs")
 
-# Phase 3: fetch abstracts
+
 print(f"\nPhase 3: Fetching abstracts...")
 articles = fetch_abstracts(pmids)
 print(f"  Got {len(articles)} articles with abstracts")
 
-# Phase 4: LLM extraction (cached results reused)
+
 print(f"\nPhase 4: Extracting relations via DeepSeek...")
 cached = len([p for p in pmids if (CACHE_DIR / "extractions" / f"{p}.json").exists()])
 print(f"  {cached} already cached, {len(articles) - cached} new to process")

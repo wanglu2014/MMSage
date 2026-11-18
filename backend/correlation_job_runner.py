@@ -65,9 +65,9 @@ def run_correlation_job(job_id: str, microbe_path: str, metabolite_path: str,
                 process = subprocess.run([rscript, str(scripts / script)], stdout=stream, stderr=subprocess.STDOUT, env=env)
             if process.returncode:
                 raise RuntimeError(script + ": " + log.read_text(encoding="utf-8", errors="replace")[-3000:])
-        # Always provide a compact, directly usable ranking artifact.  This is
-        # independent of the optional trajectory calculation and works for any
-        # feature identifiers supplied by the user.
+        
+        
+        
         mic = pd.read_csv(microbe_path, sep=None, engine="python", index_col=0)
         met = pd.read_csv(metabolite_path, sep=None, engine="python", index_col=0)
         shared = [s for s in mic.columns if s in met.columns]
@@ -94,8 +94,8 @@ def run_correlation_job(job_id: str, microbe_path: str, metabolite_path: str,
         legacy_coordinates = sorted((out_dir / "coords").glob("*_newseed_*_coordinates.csv"))
         if not coordinates:
             raise RuntimeError("No trajectory coordinate files were produced")
-        # Materialize a stable ranking artifact from the TreeMM trajectory
-        # itself.  Lower pseudotime is the first ranked metabolite.
+        
+        
         trajectory_rows = []
         for path in coordinates:
             frame = pd.read_csv(path)

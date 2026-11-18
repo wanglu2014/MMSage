@@ -31,8 +31,8 @@ def save_json(path: Path, data: Any) -> None:
     payload = json.dumps(data, indent=2, ensure_ascii=False)
     with _json_lock:
         path.parent.mkdir(parents=True, exist_ok=True)
-        # Close the temporary file before replacement on Windows. Unique names
-        # also prevent separate workers from overwriting each other's temp file.
+        
+        
         fd, name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
         temporary = Path(name)
         try:
@@ -45,7 +45,7 @@ def save_json(path: Path, data: Any) -> None:
                 except PermissionError:
                     if attempt == 19:
                         raise
-                    # Other processes/Windows scanners may briefly hold a handle.
+                    
                     time.sleep(0.05)
         finally:
             temporary.unlink(missing_ok=True)

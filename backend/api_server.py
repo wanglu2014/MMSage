@@ -1,8 +1,4 @@
-"""
-FastAPI Backend Server
-======================
-REST API for the MMSage x Chain Novelty Dual-Axis Decision System.
-"""
+
 
 import json
 import asyncio
@@ -25,7 +21,7 @@ import uvicorn
 
 import sys
 
-# Paths
+
 BACKEND_DIR = Path(__file__).parent
 sys.path.append(str(BACKEND_DIR))
 PROJECT_DIR = BACKEND_DIR.parent
@@ -33,7 +29,7 @@ OUTPUTS_DIR = PROJECT_DIR / "outputs"
 DATA_DIR = PROJECT_DIR / "data"
 CATALOG_DIR = DATA_DIR / "results_catalog"
 FRONTEND_DIR = PROJECT_DIR / "frontend"
-# Prefer auto-built KG, fallback to test KG
+
 AUTO_GML = DATA_DIR / "knowledge_graph" / "auto_built_kg.gml"
 TEST_GML = DATA_DIR / "knowledge_graph" / "ibd_test_kg.gml"
 DEFAULT_GML = AUTO_GML if AUTO_GML.exists() else TEST_GML
@@ -56,7 +52,7 @@ from correlation_job_runner import run_correlation_job
 
 app = FastAPI(title="MMSage x Chain Novelty Dual-Axis System", version="2.0.0")
 
-# CORS for local development
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -64,7 +60,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Pipeline state
+
 pipeline_state = {
     "status": "idle",
     "current_step": 0,
@@ -73,7 +69,7 @@ pipeline_state = {
 }
 
 
-# --- Models ---
+
 
 class PipelineConfig(BaseModel):
     coordinates_dir: Optional[str] = None
@@ -95,7 +91,7 @@ def _safe_upload_name(filename: str) -> str:
 
 @app.post("/api/correlation/jobs")
 async def create_correlation_job(microbes: UploadFile = File(...), metabolites: UploadFile = File(...), microbe_filter: str | None = Query(default=None), top_n: int = Query(default=50, ge=1, le=10000), p_threshold: float = Query(default=1.0, ge=0, le=1), num_dim: int = Query(default=20, ge=2), neighbors: int = Query(default=3, ge=2), min_dist: float = Query(default=0.5, ge=0, le=1), metric: str = Query(default="cosine"), cluster_res: float = Query(default=0.1, ge=0)):
-    """Run M1–M4; derive taxonomy and Spearman statistics from the two matrices."""
+    pass
     job_id = f"corr_{uuid4().hex[:12]}"
     inputs = job_inputs_dir(job_id)
     inputs.mkdir(parents=True, exist_ok=True)
@@ -189,10 +185,10 @@ class ProtocolRefineRunRequest(BaseModel):
     session_id: str
 
 
-# --- Helpers ---
+
 
 def read_json(filename: str) -> list:
-    """Read JSON output file."""
+    pass
     path = OUTPUTS_DIR / filename
     if not path.exists():
         return []
@@ -238,7 +234,7 @@ _OBSERVATIONAL_PROMOTE_MARKERS = (
 def _normalize_edge_relation(
     G: nx.DiGraph, src: str, tgt: str, edata: dict
 ) -> tuple[str, bool]:
-    """Downgrade suspicious observational microbe->IBD promotes edges."""
+    pass
     relation = str(edata.get("relation", "") or "")
     if relation.lower() != "promotes":
         return relation, False
@@ -497,7 +493,7 @@ def run_validation_plan_job(job_id: str, req: "ValidationPlanRequest") -> None:
 
 
 def run_pipeline_background(config: PipelineConfig):
-    """Run pipeline in background thread."""
+    pass
     global pipeline_state
     pipeline_state = {"status": "running", "current_step": 1, "progress": "Starting...", "error": None}
 
@@ -521,11 +517,11 @@ def run_pipeline_background(config: PipelineConfig):
         pipeline_state["error"] = str(e)
 
 
-# --- Pipeline Endpoints ---
+
 
 @app.post("/api/pipeline/run")
 async def trigger_pipeline(config: PipelineConfig = PipelineConfig()):
-    """Trigger pipeline execution in background."""
+    pass
     if pipeline_state["status"] == "running":
         return {"status": "already_running", "current_step": pipeline_state["current_step"]}
 
@@ -536,8 +532,8 @@ async def trigger_pipeline(config: PipelineConfig = PipelineConfig()):
 
 @app.get("/api/pipeline/status")
 async def get_pipeline_status():
-    """Get current pipeline status."""
-    # Also check if output files exist
+    pass
+    
     steps_completed = []
     for i, fname in enumerate(["step1_candidates.json", "step2_chain_novelty.json",
                                 "step3_quadrant.json"], 1):
@@ -553,31 +549,31 @@ async def get_pipeline_status():
     }
 
 
-# --- Results Endpoints ---
+
 
 @app.get("/api/step1/candidates")
 async def get_step1_candidates(run_id: str = Query(default="")):
-    """Get step 1 candidates."""
+    pass
     return read_json_for_run("step1_candidates.json", run_id)
 
 
 @app.get("/api/step2/chain_novelty")
 async def get_step2_chain_novelty(run_id: str = Query(default="")):
-    """Get step 2 Chain Novelty results."""
+    pass
     return read_json_for_run("step2_chain_novelty.json", run_id)
 
 
 @app.get("/api/step3/quadrant")
 async def get_step3_quadrant(run_id: str = Query(default="")):
-    """Get step 3 quadrant results."""
+    pass
     return read_json_for_run("step3_quadrant.json", run_id)
 
 
-# --- Multi-Agent Evidence Endpoints ---
+
 
 @app.get("/api/step2b/agent_evidence")
 async def get_agent_evidence(run_id: str = Query(default="")):
-    """Get step 2b multi-agent evidence results."""
+    pass
     return read_json_for_run("step2b_agent_evidence.json", run_id)
 
 
@@ -587,7 +583,7 @@ async def query_agent_evidence(
     metabolite: str = Query(default=""),
     disease: str = Query(default="IBD"),
 ):
-    """Run multi-agent evidence query for a single candidate (on-demand)."""
+    pass
     if not bacteria or not metabolite:
         return {"error": "bacteria and metabolite are required"}
 
@@ -597,11 +593,11 @@ async def query_agent_evidence(
     return result
 
 
-# --- Knowledge Graph Endpoints ---
+
 
 @app.get("/api/graph/stats")
 async def get_graph_stats(run_id: str = Query(default="")):
-    """Get knowledge graph statistics."""
+    pass
     gml_path = resolve_gml_path(run_id)
     if not gml_path.exists():
         return {"error": "GML file not found"}
@@ -627,18 +623,18 @@ async def get_graph_subgraph(
     max_hop: int = Query(default=2),
     run_id: str = Query(default=""),
 ):
-    """Get KG subgraph in Cytoscape.js JSON format."""
+    pass
     gml_path = resolve_gml_path(run_id)
     if not gml_path.exists():
         return {"error": "GML not found"}
 
     G = nx.read_gml(str(gml_path))
 
-    # If no filter, return full graph
+    
     if not bacteria and not metabolite:
         subgraph = G
     else:
-        # Find matching nodes by label
+        
         seeds = set()
         for nid, ndata in G.nodes(data=True):
             label = ndata.get('label', nid).lower()
@@ -649,7 +645,7 @@ async def get_graph_subgraph(
                 seeds.add(nid)
 
         if seeds:
-            # Extract k-hop subgraph
+            
             neighbors = set(seeds)
             for _ in range(max_hop):
                 new_neighbors = set()
@@ -661,7 +657,7 @@ async def get_graph_subgraph(
         else:
             subgraph = G
 
-    # Convert to Cytoscape.js JSON
+    
     cy_nodes = []
     for nid, ndata in subgraph.nodes(data=True):
         cy_nodes.append({
@@ -695,7 +691,7 @@ async def get_graph_subgraph(
 
 @app.get("/api/graph/full")
 async def get_full_graph(run_id: str = Query(default="")):
-    """Get full KG as Cytoscape.js JSON."""
+    pass
     return await get_graph_subgraph(bacteria="", metabolite="", max_hop=2, run_id=run_id)
 
 
@@ -708,32 +704,24 @@ async def get_chain_subgraph(
     focused: bool = Query(default=False),
     run_id: str = Query(default=""),
 ):
-    """Get a focused single-chain subgraph: bacteria -> metabolite -> disease.
-
-    Only extracts 1-hop neighbors of the three core nodes, limited to
-    `max_neighbors` per core node to keep the graph clean (10-20 nodes total).
-    Core nodes and chain edges are marked for frontend highlighting.
-
-    If focused=true, only core nodes and direct edges between them are returned
-    (avoids repeated neighbor clutter for the same microbe across catalog records).
-    """
+    pass
     gml_path = resolve_gml_path(run_id)
     if not gml_path.exists():
         return {"error": "GML not found"}
 
     G = nx.read_gml(str(gml_path))
 
-    # --- Find core nodes by fuzzy label match ---
+    
     def find_node(keyword):
         keyword_lower = keyword.lower().replace("_", " ")
         best, best_score = None, 0
         for nid, ndata in G.nodes(data=True):
             label = ndata.get('label', nid).lower().replace("_", " ")
             nid_lower = nid.lower().replace("_", " ")
-            # Exact match
+            
             if keyword_lower == label or keyword_lower == nid_lower:
                 return nid
-            # Substring match — prefer shorter labels (more specific)
+            
             if keyword_lower in label or keyword_lower in nid_lower:
                 score = len(keyword_lower) / max(len(label), 1)
                 if score > best_score:
@@ -765,9 +753,9 @@ async def get_chain_subgraph(
                     selected_nodes.add(core_list[i])
                     selected_nodes.add(core_list[j])
     else:
-        pass  # neighbor expansion below
+        pass  
 
-    # --- Collect 1-hop neighbors per core node (limited) ---
+    
     if not focused:
         for core_nid in core_ids:
             neighbors = set()
@@ -787,7 +775,7 @@ async def get_chain_subgraph(
 
     subgraph = G.subgraph(selected_nodes)
 
-    # --- Identify chain edges (direct links between core nodes) ---
+    
     chain_edges = set()
     for i in range(len(core_list)):
         for j in range(len(core_list)):
@@ -795,7 +783,7 @@ async def get_chain_subgraph(
                 if subgraph.has_edge(core_list[i], core_list[j]):
                     chain_edges.add((core_list[i], core_list[j]))
 
-    # --- Build Cytoscape.js JSON with core/chain markers ---
+    
     cy_nodes = []
     for nid, ndata in subgraph.nodes(data=True):
         is_core = nid in core_ids
@@ -915,7 +903,7 @@ async def get_node_evidence(
     core_role: str = Query(default=""),
     include_abstracts: bool = Query(default=True),
 ):
-    """Literature evidence for a KG node: incident edges (PMIDs) + hop-level PubMed co-occurrence."""
+    pass
     gml_path = resolve_gml_path(run_id)
     if not gml_path.exists():
         return {"error": "GML not found"}
@@ -991,11 +979,11 @@ async def get_node_evidence(
     }
 
 
-# --- Config Endpoint ---
+
 
 @app.get("/api/config")
 async def get_config():
-    """Get current pipeline configuration."""
+    pass
     default_run_id = ensure_default_dashboard_run_id()
     return {
         "coordinates_dir": DEFAULT_COORDINATES_DIR,
@@ -1008,11 +996,11 @@ async def get_config():
     }
 
 
-# --- Compatibility endpoints for MMSage_Dashboard.html ---
+
 
 @app.get("/api/dual-axis-candidates")
 async def get_dual_axis_candidates(run_id: str = Query(default="")):
-    """Return step3 quadrant data in the format expected by MMSage_Dashboard.html."""
+    pass
     import math
 
     resolved_run_id = resolve_requested_run_id(run_id)
@@ -1031,7 +1019,7 @@ async def get_dual_axis_candidates(run_id: str = Query(default="")):
         bm = q.get("pair_bm_exp", 0)
         md = q.get("pair_md_exp", 0)
         mms = q.get("mmsage_norm", 0)
-        # Composite: mmsage * (1 + log2(1+bm_exp)) * (1 + log2(1+md_exp))
+        
         composite = mms * (1 + math.log2(1 + bm)) * (1 + math.log2(1 + md))
 
         candidates.append({
@@ -1051,16 +1039,17 @@ async def get_dual_axis_candidates(run_id: str = Query(default="")):
             "pairwise_counts": q.get("candidate", {}).get("pairwise_counts", {}),
         })
 
-    # Group by quadrant (I > II > III > IV), then sort by mmsage_norm descending within each group
+    
     _quadrant_priority = {"I": 0, "II": 1, "III": 2, "IV": 3}
     candidates.sort(
         key=lambda c: (
             _quadrant_priority.get(c.get("quadrant"), 9),
+            not (c.get("quadrant") == "I" and c["pair_bm_exp"] > 0 and c["pair_md_exp"] > 0),
             -c["mmsage_norm"],
         )
     )
 
-    # Compute actual thresholds (median)
+    
     import statistics
     mms_vals = [c["mmsage_norm"] for c in candidates]
     ef_vals = [c["pair_bm_exp"] + c["pair_md_exp"] for c in candidates]
@@ -1083,7 +1072,7 @@ async def get_dual_axis_candidates(run_id: str = Query(default="")):
 
 @app.get("/api/heatmap")
 async def get_heatmap():
-    """Return heatmap data from coordinates CSV."""
+    pass
     import pandas as pd
 
     coord_file = Path(DEFAULT_COORDINATES_FILE)
@@ -1093,16 +1082,16 @@ async def get_heatmap():
     df = pd.read_csv(coord_file)
     rowname_col = "Row.names" if "Row.names" in df.columns else df.columns[1]
 
-    # Row.names format: "MetaboliteName-Bacteria_name"
-    # Bacteria name contains underscores, metabolite may contain hyphens.
-    # Split by finding the bacteria suffix (last occurrence of "-" followed by a word with "_")
+    
+    
+    
     rows = []
     for _, row in df.iterrows():
         name = str(row[rowname_col])
-        # Try to find bacteria suffix: look for "-SomeWord_SomeWord" pattern at end
-        # The bacteria name always contains "_" (genus_species)
+        
+        
         metabolite, bacteria = name, "Unknown"
-        # Find the last "-" where the right part contains "_" (bacteria genus_species)
+        
         for i in range(len(name) - 1, 0, -1):
             if name[i] == '-' and '_' in name[i+1:]:
                 metabolite = name[:i]
@@ -1130,14 +1119,14 @@ async def get_heatmap():
 
 @app.post("/api/knowledge-graph")
 async def post_knowledge_graph(req: KGRequest):
-    """Return KG subgraph in Cytoscape.js format (POST, for old dashboard)."""
+    pass
     return await get_graph_subgraph(
         bacteria=req.bacteria, metabolite=req.metabolite, max_hop=2)
 
 
 @app.post("/api/generate-protocol")
 async def generate_protocol(req: ProtocolRequest):
-    """Generate through the same evidence-grounded validation planner as the Step 3 endpoint."""
+    pass
     try:
         from validation_planner import generate_validation_plan as build_validation_plan
 
@@ -1169,7 +1158,7 @@ async def generate_protocol(req: ProtocolRequest):
 
 @app.post("/api/validation-plan/start")
 async def start_validation_plan(req: ValidationPlanRequest):
-    """Start validation-plan generation as a background job with progress logs."""
+    pass
     job_id = f"vp-{uuid4().hex[:12]}"
     create_validation_plan_job_status(job_id, req)
     thread = threading.Thread(target=run_validation_plan_job, args=(job_id, req), daemon=True)
@@ -1183,7 +1172,7 @@ async def start_validation_plan(req: ValidationPlanRequest):
 
 @app.get("/api/validation-plan/status/{job_id}")
 async def get_validation_plan_status(job_id: str):
-    """Get validation-plan progress, logs, and final result."""
+    pass
     status = load_validation_plan_job_status(job_id)
     if status.get("status") == "not_found":
         raise HTTPException(status_code=404, detail=f"Validation plan job '{job_id}' not found.")
@@ -1192,7 +1181,7 @@ async def get_validation_plan_status(job_id: str):
 
 @app.post("/api/validation-plan")
 async def generate_validation_plan(req: ValidationPlanRequest):
-    """Compatibility endpoint: generate validation plan synchronously."""
+    pass
     try:
         from validation_planner import generate_validation_plan as build_validation_plan
 
@@ -1216,7 +1205,7 @@ async def generate_validation_plan(req: ValidationPlanRequest):
 
 @app.post("/api/protocol/refine/start")
 async def protocol_refine_start(req: ProtocolRefineStartRequest):
-    """Create a file-based Step 3 refinement session from the current protocol draft."""
+    pass
     try:
         from protocol_refiner import start_refinement_session
 
@@ -1236,7 +1225,7 @@ async def protocol_refine_start(req: ProtocolRefineStartRequest):
 
 @app.post("/api/protocol/refine/confirm")
 async def protocol_refine_confirm(req: ProtocolRefineConfirmRequest):
-    """Save user-confirmed modules and one round of extra requirements."""
+    pass
     try:
         from protocol_refiner import confirm_refinement_session
 
@@ -1253,7 +1242,7 @@ async def protocol_refine_confirm(req: ProtocolRefineConfirmRequest):
 
 @app.post("/api/protocol/refine/run")
 async def protocol_refine_run(req: ProtocolRefineRunRequest):
-    """Run the simplified multi-agent Step 3 refinement loop."""
+    pass
     try:
         from protocol_refiner import run_refinement_session
 
@@ -1266,7 +1255,7 @@ async def protocol_refine_run(req: ProtocolRefineRunRequest):
 
 @app.get("/api/protocol/refine/result")
 async def protocol_refine_result(session_id: str = Query(...)):
-    """Fetch the current or completed Step 3 refinement session payload."""
+    pass
     from protocol_refiner import get_refinement_session_result
 
     result = get_refinement_session_result(session_id)
@@ -1275,7 +1264,7 @@ async def protocol_refine_result(session_id: str = Query(...)):
     return result
 
 
-# --- Coordinates File Upload (async background pipeline) ---
+
 
 import threading
 
@@ -1283,28 +1272,28 @@ _pipeline_progress = {"status": "idle", "step": "", "disease": "", "error": None
 _last_job_id = ""
 
 def _run_pipeline_bg(csv_path: str, disease: str, output_dir: str):
-    """Run pipeline in background thread, updating progress."""
+    pass
     global _pipeline_progress
     _pipeline_progress = {"status": "running", "step": "step1 (MMSage signal)", "disease": disease, "error": None}
     try:
         import time as _time
         from pathlib import Path as _P
 
-        # Monitor file creation to update progress
+        
         step1_path = _P(output_dir) / "step1_candidates.json"
         step2_path = _P(output_dir) / "step2_chain_novelty.json"
         step2b_path = _P(output_dir) / "step2b_agent_evidence.json"
         step3_path = _P(output_dir) / "step3_quadrant.json"
 
-        # Remove stale stage outputs so the new disease run starts from scratch.
+        
         for p in [step1_path, step2_path, step2b_path, step3_path]:
             if p.exists():
                 p.unlink()
 
         from run_pipeline import run_pipeline
 
-        # Run in a sub-thread so we can monitor progress
-        result_holder = [None, None]  # [result, error]
+        
+        result_holder = [None, None]  
         def _inner():
             try:
                 result_holder[0] = run_pipeline(
@@ -1320,7 +1309,7 @@ def _run_pipeline_bg(csv_path: str, disease: str, output_dir: str):
         t = threading.Thread(target=_inner, daemon=True)
         t.start()
 
-        # Monitor progress while pipeline runs
+        
         while t.is_alive():
             _time.sleep(2)
             if step3_path.exists():
@@ -1364,7 +1353,7 @@ async def upload_coordinates(
     file: UploadFile = File(...),
     disease: str = Query(default="IBD"),
 ):
-    """Upload CSV and start an isolated pipeline job."""
+    pass
     global _last_job_id
 
     import re
@@ -1423,7 +1412,7 @@ async def upload_coordinates(
 
 @app.get("/api/jobs/{job_id}/status")
 async def job_progress(job_id: str):
-    """Poll status for a specific isolated pipeline job."""
+    pass
     status = load_job_status(job_id)
     if status.get("status") == "not_found":
         raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
@@ -1432,18 +1421,18 @@ async def job_progress(job_id: str):
 
 @app.get("/api/pipeline-progress")
 async def pipeline_progress(job_id: str = Query(default="")):
-    """Compatibility polling endpoint; prefer /api/jobs/{job_id}/status."""
+    pass
     target_job_id = job_id or _last_job_id
     if target_job_id:
         return load_job_status(target_job_id)
     return _pipeline_progress
 
 
-# --- Results Catalog (JSON archive) ---
+
 
 @app.get("/api/catalog/runs")
 async def catalog_list_runs():
-    """List archived pipeline runs."""
+    pass
     from export_catalog import list_runs
     return list_runs()
 
@@ -1459,7 +1448,7 @@ async def catalog_search(
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ):
-    """Search flattened index across all archived runs."""
+    pass
     from export_catalog import search_records
     return search_records(
         q=q, bacteria=bacteria, metabolite=metabolite,
@@ -1470,7 +1459,7 @@ async def catalog_search(
 
 @app.get("/api/catalog/candidates")
 async def catalog_candidates(run_id: str = Query(...)):
-    """Full candidate list for one archived run."""
+    pass
     from export_catalog import get_run_candidates
     items = get_run_candidates(run_id)
     if not items:
@@ -1484,7 +1473,7 @@ async def catalog_record(
     bacteria: str = Query(...),
     metabolite: str = Query(...),
 ):
-    """Single candidate detail from an archived run."""
+    pass
     from export_catalog import get_record
     item = get_record(run_id, bacteria, metabolite)
     if not item:
@@ -1498,7 +1487,7 @@ async def catalog_download(
     bacteria: str = Query(...),
     metabolite: str = Query(...),
 ):
-    """Download merged JSON export for one catalog record."""
+    pass
     from export_catalog import build_record_export, export_download_filename
 
     payload = build_record_export(run_id, bacteria, metabolite)
@@ -1517,7 +1506,7 @@ async def catalog_download(
 
 @app.post("/api/catalog/archive")
 async def catalog_archive_now(disease: str = Query(default="IBD")):
-    """Manually archive current outputs/ into the results catalog."""
+    pass
     from export_catalog import archive_run
     if not (OUTPUTS_DIR / "step3_quadrant.json").exists():
         raise HTTPException(status_code=400, detail="No step3_quadrant.json in outputs/")
@@ -1527,7 +1516,7 @@ async def catalog_archive_now(disease: str = Query(default="IBD")):
 
 @app.get("/api/dashboard/default-run")
 async def dashboard_default_run():
-    """Return the pinned default dashboard run."""
+    pass
     run_id = ensure_default_dashboard_run_id()
     meta = get_run_meta(run_id)
     return {
@@ -1536,27 +1525,27 @@ async def dashboard_default_run():
     }
 
 
-# --- Serve MMSage_Dashboard.html ---
+
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def serve_dashboard():
-    """Serve the MMSage_Dashboard.html."""
+    pass
     path = FRONTEND_DIR / "MMSage_Dashboard.html"
     if path.exists():
         return HTMLResponse(path.read_text(encoding='utf-8'))
     return HTMLResponse("<h1>MMSage Dashboard not found</h1>")
 
 
-# --- Frontend Serving ---
 
-# Mount static files
+
+
 if FRONTEND_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_index():
-    """Serve dashboard page."""
+    pass
     index_path = FRONTEND_DIR / "index.html"
     if index_path.exists():
         return HTMLResponse(index_path.read_text(encoding='utf-8'))
@@ -1565,7 +1554,7 @@ async def serve_index():
 
 @app.get("/api/example-input/{filename}")
 async def serve_example_input(filename: str):
-    """Serve the bundled example abundance matrix for the demo pipeline page."""
+    pass
     allowed = {"microbes.tsv": "microbes.tsv", "metabolites.tsv": "metabolites.tsv"}
     if filename not in allowed:
         raise HTTPException(status_code=404, detail="Example input not found")

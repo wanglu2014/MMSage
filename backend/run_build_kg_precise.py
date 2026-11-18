@@ -1,14 +1,4 @@
-"""
-Build KG: precise single query + OpenAlex enrichment
-=====================================================
-Step 1: PubMed 精确查询 Akk+IBD+实验 文献
-Step 2: DeepSeek LLM 提取三元组 (已缓存的自动跳过)
-Step 3: OpenAlex 增强 edge_impact_factor / edge_citation_count / publication_year
-Step 4: 保存到项目 data/knowledge_graph/auto_built_kg.gml
 
-运行方式 (在本仓库 backend 目录下):
-  python run_build_kg_precise.py
-"""
 import os
 import sys
 import io
@@ -32,9 +22,9 @@ from build_kg import (
     build_kg_from_abstracts, _make_node_id, _print_kg_stats,
 )
 
-# ================================================================
-# Config
-# ================================================================
+
+
+
 
 QUERY = (
     '"Akkermansia muciniphila"'
@@ -56,9 +46,9 @@ _OPENALEX_UA_MAIL = os.getenv("ENTREZ_EMAIL", "").strip() or "anonymous"
 _OPENALEX_UA = f"MMSage-KG/1.0 (mailto:{_OPENALEX_UA_MAIL})"
 
 
-# ================================================================
-# Step 1-2: PubMed search + DeepSeek LLM extraction
-# ================================================================
+
+
+
 
 def build_kg_step():
     print("=" * 65)
@@ -108,11 +98,11 @@ def build_kg_step():
     return G
 
 
-# ================================================================
-# Step 3: OpenAlex enrichment
-# (adapted from rep1221_clin/add_metrics_to_gml.py,
-#  属性名改为 edge_ 前缀, 补 publication_year)
-# ================================================================
+
+
+
+
+
 
 class OpenAlexEnricher:
     def __init__(self, delay=0.4):
@@ -227,9 +217,9 @@ class OpenAlexEnricher:
         print(f"  Done: {datetime.now().strftime('%H:%M:%S')}")
 
 
-# ================================================================
-# Main
-# ================================================================
+
+
+
 
 if __name__ == "__main__":
     G = build_kg_step()

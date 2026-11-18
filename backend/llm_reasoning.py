@@ -1,12 +1,4 @@
-"""
-LLM Reasoning Module for MMSage-Insight
-Provides mechanism reasoning using OpenAI API.
 
-Follows rep1212 pattern for expert system LLM integration:
-- Structured context building
-- Prompt engineering for scientific reasoning
-- Response parsing and formatting
-"""
 import os
 import json
 from typing import Optional, Dict, List, Any
@@ -19,22 +11,22 @@ except ImportError:
     HAS_REQUESTS = False
 
 
-# Configuration — set OPENAI_API_KEY (and optionally OPENAI_API_BASE, OPENAI_MODEL)
+
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "") or os.getenv("AI2API_KEY", "")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4")
 _default_base = "https://api.openai.com/v1" if OPENAI_API_KEY else ""
 OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "").strip() or _default_base
 
 
 @dataclass
 class ReasoningResult:
-    """Result from LLM mechanism reasoning."""
+    pass
     hypothesis: str
     mechanism: str
     key_insights: List[Dict[str, str]]
     confidence_assessment: str
     limitations: List[str]
-    generated_by: str  # 'openai', 'template'
+    generated_by: str  
     model: Optional[str] = None
     raw_response: Optional[str] = None
     
@@ -51,9 +43,7 @@ class ReasoningResult:
 
 
 class LLMReasoning:
-    """
-    LLM-based mechanism reasoning using OpenAI API.
-    """
+    pass
     
     SYSTEM_PROMPT = """You are an expert microbiome-metabolomics researcher specializing in gut microbiota and their metabolic interactions. Your role is to analyze microbe-metabolite associations and propose mechanistic hypotheses.
 
@@ -83,19 +73,13 @@ Format your response as JSON with the following structure:
 Please provide your analysis in the specified JSON format."""
 
     def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
-        """
-        Initialize LLM reasoning module.
-        
-        Args:
-            api_key: OpenAI API key (uses env var if not provided)
-            model: Model name (uses env var or default if not provided)
-        """
+        pass
         self.api_key = api_key or OPENAI_API_KEY
         self.model = model or OPENAI_MODEL
         self._validate_setup()
     
     def _validate_setup(self) -> None:
-        """Validate that the module is properly configured."""
+        pass
         self.is_configured = bool(self.api_key) and HAS_REQUESTS
         if not HAS_REQUESTS:
             print("Warning: requests library not installed. LLM API calls will not work.")
@@ -109,18 +93,7 @@ Please provide your analysis in the specified JSON format."""
         metabolite: str,
         use_llm: bool = True
     ) -> ReasoningResult:
-        """
-        Generate mechanism reasoning.
-        
-        Args:
-            context: Formatted knowledge context from KnowledgeFormatter
-            bacteria: Target bacteria name
-            metabolite: Target metabolite name
-            use_llm: Whether to attempt LLM API call
-            
-        Returns:
-            ReasoningResult with hypothesis and mechanism
-        """
+        pass
         if not use_llm:
             raise RuntimeError("LLM reasoning disabled. Set use_llm=true to run inference.")
 
@@ -135,7 +108,7 @@ Please provide your analysis in the specified JSON format."""
         bacteria: str,
         metabolite: str
     ) -> ReasoningResult:
-        """Call OpenAI API for mechanism reasoning."""
+        pass
         if not HAS_REQUESTS:
             raise RuntimeError("requests library not available")
         
@@ -170,7 +143,7 @@ Please provide your analysis in the specified JSON format."""
         result = response.json()
         content = result['choices'][0]['message']['content']
         
-        # Parse JSON response
+        
         parsed = json.loads(content)
         
         return ReasoningResult(
@@ -186,11 +159,11 @@ Please provide your analysis in the specified JSON format."""
     
     
     def is_api_available(self) -> bool:
-        """Check if OpenAI API is configured and available."""
+        pass
         return self.is_configured
     
     def get_config(self) -> Dict[str, Any]:
-        """Get current configuration (without exposing full API key)."""
+        pass
         return {
             'api_configured': bool(self.api_key),
             'api_key_preview': f"{self.api_key[:8]}..." if self.api_key else None,
@@ -200,12 +173,12 @@ Please provide your analysis in the specified JSON format."""
         }
 
 
-# Singleton instance
+
 _llm: Optional[LLMReasoning] = None
 
 
 def get_llm_reasoning(api_key: Optional[str] = None) -> LLMReasoning:
-    """Get or create LLMReasoning singleton."""
+    pass
     global _llm
     if _llm is None:
         _llm = LLMReasoning(api_key)
@@ -213,14 +186,14 @@ def get_llm_reasoning(api_key: Optional[str] = None) -> LLMReasoning:
 
 
 def configure_llm(api_key: str, model: Optional[str] = None) -> LLMReasoning:
-    """Configure LLM with new API key."""
+    pass
     global _llm
     _llm = LLMReasoning(api_key, model)
     return _llm
 
 
 if __name__ == "__main__":
-    # Print config only
+    
     llm = LLMReasoning()
     print("=== LLM Configuration ===")
     print(json.dumps(llm.get_config(), indent=2))

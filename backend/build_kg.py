@@ -1,20 +1,4 @@
-"""
-Build Knowledge Graph from PubMed literature (v3)
-==================================================
-DeepSeek API (multi-key pool from CSV, openai SDK) + SapBERT NER.
-Prompt/parse aligned with rep1212 ===BEGIN NODES/EDGES=== CSV format.
 
-Two entry points:
-  run_build_kg_direct(species, disease)  -- standalone, no candidates needed
-  run_build_kg(candidates_path, ...)     -- full pipeline integration
-
-Pipeline:
-1. Build PubMed queries from species+disease (or candidates)
-2. Fetch abstracts with experimental evidence filter
-3. SapBERT-expanded entity recognition
-4. DeepSeek relation extraction (===BEGIN NODES/EDGES=== CSV format)
-5. Build NetworkX graph and save as GML
-"""
 
 import os
 import json
@@ -47,7 +31,7 @@ except ImportError:
     HAS_SAPBERT = False
 
 
-# ---- Config ----
+
 
 ENTREZ_EMAIL = os.getenv("ENTREZ_EMAIL", "").strip() or "entrez-not-configured@invalid"
 CACHE_DIR = Path(__file__).parent.parent / "cache" / "kg_build"
@@ -74,12 +58,12 @@ VALID_RELATIONS = frozenset({
 })
 
 
-# ================================================================
-# DeepSeek API Client Pool (adapted from rep1212 APIClientPool)
-# ================================================================
+
+
+
 
 def _load_keys_from_csv(keys_csv: Path) -> List[str]:
-    """Load DeepSeek API keys from CSV file (rep1212 format)."""
+    pass
     keys = []
     with open(keys_csv, "r", encoding="utf-8") as f:
         for line in f:
@@ -93,7 +77,7 @@ def _load_keys_from_csv(keys_csv: Path) -> List[str]:
 
 
 class DeepSeekPool:
-    """Simplified multi-key client pool (from rep1212 APIClientPool)."""
+    pass
 
     def __init__(self, keys_csv: Path = DEFAULT_KEYS_CSV, max_keys: int = 10):
         all_keys = _load_keys_from_csv(keys_csv)
@@ -120,7 +104,7 @@ class DeepSeekPool:
 
     def call(self, system_prompt: str, user_prompt: str,
              max_retries: int = 3) -> Optional[str]:
-        """Call DeepSeek API with key rotation and retry."""
+        pass
         for attempt in range(max_retries):
             info = self._pick_client()
             try:
@@ -135,7 +119,7 @@ class DeepSeekPool:
                     timeout=90,
                 )
                 text = resp.choices[0].message.content or ""
-                # strip <think>...</think> tags (deepseek-reasoner)
+                
                 text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
                 with self._lock:
                     info["errors"] = max(0, info["errors"] - 1)
@@ -172,9 +156,9 @@ def _get_pool(keys_csv: Path = DEFAULT_KEYS_CSV) -> DeepSeekPool:
     return _pool
 
 
-# ================================================================
-# SapBERT Synonym Expansion (cached)
-# ================================================================
+
+
+
 
 _synonym_cache: Dict[str, List[str]] = {}
 _synonym_cache_loaded = False
@@ -204,7 +188,7 @@ def get_sapbert_synonyms(
     entity_name: str, entity_type: str = None,
     top_k: int = 5, threshold: float = 0.75,
 ) -> List[str]:
-    """Get synonyms via SapBERT. Cached."""
+    pass
     _load_synonym_cache()
     cache_key = f"{entity_name}|{entity_type or 'any'}"
     if cache_key in _synonym_cache:
@@ -232,7 +216,7 @@ def get_sapbert_synonyms(
 def expand_entity_names(
     bacteria_set: Set[str], metabolite_set: Set[str], disease: str,
 ) -> Tuple[Dict[str, str], Dict[str, str], List[str]]:
-    """Expand entity dictionaries with SapBERT synonyms."""
+    pass
     bacteria_names: Dict[str, str] = {}
     for bact in bacteria_set:
         for s in get_sapbert_synonyms(bact, entity_type="microbe"):
@@ -264,9 +248,9 @@ def expand_entity_names(
     return bacteria_names, metabolite_names, disease_terms
 
 
-# ================================================================
-# PubMed Fetching (robust, from rep1212)
-# ================================================================
+
+
+
 
 def search_pubmed(query: str, max_results: int = 40) -> List[str]:
     if not HAS_ENTREZ:
@@ -342,9 +326,9 @@ def fetch_abstracts(pmids: List[str]) -> List[Dict[str, str]]:
     return articles
 
 
-# ================================================================
-# Entity Recognition
-# ================================================================
+
+
+
 
 def _normalize(text: str) -> str:
     return text.lower().strip()
@@ -392,9 +376,9 @@ def recognize_entities(
             "disease": found_disease}
 
 
-# ================================================================
-# LLM Relation Extraction (rep1212 ===BEGIN NODES/EDGES=== format)
-# ================================================================
+
+
+
 
 _RE_SYSTEM_PROMPT = "You are a biomedical knowledge graph extraction expert."
 
@@ -433,11 +417,11 @@ Requirements:
 
 
 def _parse_csv_sections(response: str) -> Optional[Dict[str, Any]]:
-    """Parse rep1212-style ===BEGIN NODES/EDGES=== CSV response."""
+    pass
     if not response:
         return None
 
-    # strip markdown code fences and <think> tags
+    
     text = re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL)
     text = text.replace("```text", "```")
     if "```" in text:
@@ -500,7 +484,7 @@ def extract_relations_llm(
     found_entities: Dict[str, Any], disease: str,
     pool: DeepSeekPool = None,
 ) -> Optional[Dict[str, Any]]:
-    """Extract relations using DeepSeek API (rep1212 CSV format)."""
+    pass
     entity_lines = []
     for bact in found_entities["bacteria"]:
         entity_lines.append(f"- {bact.replace('_', ' ')} (microbe)")
@@ -523,9 +507,9 @@ def extract_relations_llm(
     return _parse_csv_sections(response)
 
 
-# ================================================================
-# KG Building
-# ================================================================
+
+
+
 
 def _add_to_graph(G: nx.DiGraph, result: Dict, article: Dict):
     pmid = article.get("pmid", "")
@@ -641,9 +625,9 @@ def _save_gml(G: nx.DiGraph, output_gml_path: str):
     print(f"\nSaved KG to {output_gml_path}")
 
 
-# ================================================================
-# Direct Entry: species + disease (no candidates needed)
-# ================================================================
+
+
+
 
 def run_build_kg_direct(
     species: str,
@@ -653,13 +637,7 @@ def run_build_kg_direct(
     max_articles: int = 40,
     max_queries: int = 10,
 ) -> nx.DiGraph:
-    """
-    Build KG directly from a species name + disease.
-    No candidates JSON needed.
-
-    Example:
-        run_build_kg_direct("Akkermansia muciniphila", "IBD", "output.gml")
-    """
+    pass
     if not HAS_ENTREZ:
         raise RuntimeError("Biopython required: pip install biopython")
 
@@ -671,14 +649,14 @@ def run_build_kg_direct(
 
     pool = DeepSeekPool(Path(keys_csv))
 
-    # Phase 1: expand names
+    
     print("\nPhase 1: SapBERT synonym expansion...")
     bacteria_set = {species.replace(" ", "_")}
     metabolite_set: Set[str] = set()
     bacteria_names, metabolite_names, disease_terms = expand_entity_names(
         bacteria_set, metabolite_set, disease)
 
-    # Phase 2: build queries directly from species + disease
+    
     print("\nPhase 2: Generating PubMed queries...")
 
     def _build_term(name: str, etype: str = None) -> str:
@@ -701,7 +679,7 @@ def run_build_kg_direct(
     queries = queries[:max_queries]
     print(f"  Generated {len(queries)} queries")
 
-    # Phase 3: fetch
+    
     print(f"\nPhase 3: Fetching PubMed abstracts (max {max_articles}/query)...")
     all_articles: List[Dict[str, str]] = []
     seen_pmids: Set[str] = set()
@@ -723,19 +701,19 @@ def run_build_kg_direct(
         _save_gml(G, output_gml_path)
         return G
 
-    # For NER: any metabolite mentioned in abstracts will be detected
-    # via SapBERT index (if available). We start with empty metabolite_names
-    # and let the LLM discover them.
+    
+    
+    
 
-    # Phase 4: extract relations
+    
     print(f"\nPhase 4: Extracting relations via DeepSeek...")
     G = build_kg_from_abstracts(
         all_articles, bacteria_names, metabolite_names,
         disease_terms, disease, pool)
 
-    # ---------------------------------------------------------
-    # 【一劳永逸的终极修复】：动态疾病同义词合并引擎 (Direct 模式)
-    # ---------------------------------------------------------
+    
+    
+    
     disease_id = _make_node_id(disease)
     if disease_id not in G:
         G.add_node(disease_id, label=disease, type="disease", node_type="disease")
@@ -758,16 +736,16 @@ def run_build_kg_direct(
     G.nodes[disease_id]['label'] = disease
     G.nodes[disease_id]['type'] = 'disease'
     G.nodes[disease_id]['node_type'] = 'disease'
-    # ---------------------------------------------------------
+    
 
     _print_kg_stats(G)
     _save_gml(G, output_gml_path)
     return G
 
 
-# ================================================================
-# Pipeline Entry: candidates JSON (existing interface)
-# ================================================================
+
+
+
 
 def generate_search_queries(
     candidates: List[Dict], disease: str,
@@ -834,7 +812,7 @@ def run_build_kg(
     experimental_only: bool = True,
     keys_csv: str = str(DEFAULT_KEYS_CSV),
 ) -> nx.DiGraph:
-    """Build KG from step1 candidates (full pipeline integration)."""
+    pass
     if not HAS_ENTREZ:
         raise RuntimeError("Biopython required: pip install biopython")
 
@@ -881,41 +859,41 @@ def run_build_kg(
         all_articles, bacteria_names, metabolite_names,
         disease_terms, disease, pool)
 
-    # ---------------------------------------------------------
-    # 【一劳永逸的终极修复】：动态疾病同义词合并引擎
-    # 不管用户输入什么缩写，自动吸收 LLM 产生的所有全拼替身！
-    # ---------------------------------------------------------
+    
+    
+    
+    
     did = _make_node_id(disease)
     if did not in G:
         G.add_node(did, label=disease, type="disease", node_type="disease")
 
-    # 1. 动态获取 SapBERT 找到的所有同义词（包含全拼、别名等）
-    # 转换为小写下划线的 ID 格式 (例如: colorectal_cancer)
+    
+    
     synonym_ids = set([_make_node_id(dt) for dt in disease_terms])
     
-    # 2. 遍历全图，揪出所有潜伏的“替身节点”
+    
     rogues_to_merge = [node for node in list(G.nodes()) if node in synonym_ids and node != did]
 
-    # 3. 剥夺替身的所有连线，并赋予给正牌大哥 (did)
+    
     for rogue in rogues_to_merge:
-        # 转移它发出的连线 (rogue -> target)
+        
         for src, tgt, data in list(G.out_edges(rogue, data=True)):
-            if tgt != did: # 防止自己连自己
+            if tgt != did: 
                 G.add_edge(did, tgt, **data)
         
-        # 转移连向它的连线 (source -> rogue)
+        
         for src, tgt, data in list(G.in_edges(rogue, data=True)):
             if src != did:
                 G.add_edge(src, did, **data)
                 
-        # 彻底删除被榨干的替身节点
+        
         G.remove_node(rogue)
 
-    # 统一正牌大哥的着装（补全属性，防止前端报错）
+    
     G.nodes[did]['label'] = disease
     G.nodes[did]['type'] = 'disease'
     G.nodes[did]['node_type'] = 'disease'
-    # ---------------------------------------------------------
+    
 
     _print_kg_stats(G)
     _save_gml(G, output_gml_path)
@@ -928,7 +906,7 @@ if __name__ == "__main__":
         description="Build KG (v3: DeepSeek + SapBERT, rep1212 aligned)")
     sub = parser.add_subparsers(dest="mode")
 
-    # Mode 1: direct (species + disease)
+    
     p1 = sub.add_parser("direct", help="Species + disease -> GML")
     p1.add_argument("--species", required=True)
     p1.add_argument("--disease", default="IBD")
@@ -938,7 +916,7 @@ if __name__ == "__main__":
     p1.add_argument("--max-articles", type=int, default=40)
     p1.add_argument("--max-queries", type=int, default=10)
 
-    # Mode 2: candidates (pipeline integration)
+    
     p2 = sub.add_parser("candidates", help="Candidates JSON -> GML")
     p2.add_argument("--candidates", default="outputs/step1_candidates.json")
     p2.add_argument("--output", default=str(

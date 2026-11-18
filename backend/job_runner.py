@@ -67,7 +67,7 @@ def run_job(
                 max_queries=max_queries,
                 max_articles_per_query=max_articles_per_query,
             )
-        except Exception as exc:  # pragma: no cover - subprocess runtime guard
+        except Exception as exc:  
             result_holder["error"] = exc
 
     worker = threading.Thread(target=_inner, daemon=True)
@@ -119,7 +119,7 @@ def main() -> int:
             max_articles_per_query=args.max_articles_per_query,
         )
         return 0
-    except Exception as exc:  # pragma: no cover - subprocess runtime guard
+    except Exception as exc:  
         update_status(
             args.job_id,
             status="error",

@@ -1,9 +1,4 @@
-"""
-Step 4: Causal Chain Generation
-================================
-Generate causal chain text using LLM API.
-Produce final results JSON and markdown report.
-"""
+
 
 import os
 import json
@@ -17,10 +12,10 @@ except ImportError:
     HAS_REQUESTS = False
 
 
-# LLM Configuration (set OPENAI_API_KEY / OPENAI_API_BASE / OPENAI_MODEL in environment)
+
 LLM_API_KEY = os.getenv("OPENAI_API_KEY", "") or os.getenv("AI2API_KEY", "")
 LLM_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
-LLM_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
+LLM_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4")
 
 
 SYSTEM_PROMPT = """You are an expert microbiome researcher. Given a microbe-metabolite pair with trajectory analysis scores and knowledge graph paths, generate a concise causal chain explaining the biological mechanism.
@@ -36,7 +31,7 @@ Output JSON with:
 
 
 def build_context(item: Dict[str, Any]) -> str:
-    """Build context string from quadrant result for LLM prompt."""
+    pass
     cand = item.get('scoresp_result', {}).get('candidate', {})
     bacteria = cand.get('bacteria', 'Unknown')
     metabolite = cand.get('metabolite', 'Unknown')
@@ -71,7 +66,7 @@ Knowledge Graph Path: {path_str}
 
 
 def generate_causal_chain_llm(context: str, bacteria: str, metabolite: str) -> Dict[str, Any]:
-    """Call LLM API to generate causal chain."""
+    pass
     if not HAS_REQUESTS or not LLM_API_KEY:
         raise RuntimeError("LLM API not available")
 
@@ -105,13 +100,13 @@ def generate_causal_chain_llm(context: str, bacteria: str, metabolite: str) -> D
 
 
 def generate_report_markdown(results: List[Dict[str, Any]]) -> str:
-    """Generate markdown report table."""
+    pass
     lines = [
         "# MMSage + ScoreSP Dual-Axis Analysis Report\n",
         f"Total candidates analyzed: {len(results)}\n",
     ]
 
-    # Quadrant summary
+    
     q_counts = {}
     for r in results:
         q = r.get('quadrant', '?')
@@ -126,7 +121,7 @@ def generate_report_markdown(results: List[Dict[str, Any]]) -> str:
         lines.append(f"| {q}{marker} | {labels.get(q, '')} | {q_counts.get(q, 0)} |")
     lines.append("")
 
-    # Results table
+    
     lines.append("## Top Candidates\n")
     lines.append("| Rank | Bacteria | Direction | Metabolite | MMSage | ScoreSP | Quadrant | Causal Chain |")
     lines.append("|------|----------|-----------|------------|--------|---------|----------|-------------|")
@@ -141,10 +136,10 @@ def generate_report_markdown(results: List[Dict[str, Any]]) -> str:
         direction = r.get('direction', '?')
         chain = r.get('causal_chain_result', {}).get('causal_chain', 'N/A')
 
-        # Add star marker for dark matter
+        
         quad_display = f"{quad}" + ("*" if r.get('is_dark_matter') else "")
 
-        # Truncate chain for table
+        
         if len(chain) > 80:
             chain = chain[:77] + "..."
 
@@ -164,19 +159,7 @@ def run_step4(
     use_llm: bool = True,
     max_llm_calls: int = 20,
 ) -> list:
-    """
-    Run step 4: generate causal chains for all candidates.
-
-    Args:
-        quadrant_path: Path to step3 output JSON
-        output_path: Path to save step4 output JSON
-        report_path: Path to save markdown report
-        use_llm: Whether to attempt LLM API calls
-        max_llm_calls: Maximum number of LLM API calls (to control cost)
-
-    Returns:
-        List of final result dicts
-    """
+    pass
     print("=" * 60)
     print("  STEP 4: Causal Chain Generation")
     print("=" * 60)
@@ -233,14 +216,14 @@ def run_step4(
     if llm_failed > 0 and llm_success == 0:
         print(f"  [ERROR] All LLM calls failed. Check API key/proxy.")
 
-    # Save results JSON
+    
     output_file = Path(output_path)
     output_file.parent.mkdir(parents=True, exist_ok=True)
     with open(output_file, 'w', encoding='utf-8') as f:
         json.dump(results, f, indent=2, ensure_ascii=False)
     print(f"Saved {len(results)} results to {output_path}")
 
-    # Generate and save report
+    
     report = generate_report_markdown(results)
     report_file = Path(report_path)
     with open(report_file, 'w', encoding='utf-8') as f:

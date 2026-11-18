@@ -1,6 +1,4 @@
-"""
-Evidence-driven Step 3 validation planning.
-"""
+
 
 from __future__ import annotations
 
@@ -12,7 +10,7 @@ from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 from build_kg import fetch_abstracts, search_pubmed
-from protocol_refiner import _chat_json, _prepare_protocol_support, articles_to_export
+from protocol_refiner import _chat_json, _prepare_protocol_support, articles_to_export, refine_protocol_components
 from protocols_io_tool import collect_protocol_evidence
 
 MAX_QUERY_RESULTS = 6
@@ -28,7 +26,7 @@ UNIVERSAL_EXPERIMENT_DESIGN_PROMPT_RULES = """Universal experimental-design reas
 - Use one scientific question and one primary indicator per module. Additional indicators must be clearly secondary.
 - Distinguish route priority from evidence state. route_status describes where a module belongs in the route; result_status records not_run, positive, negative, or inconclusive; execution_status records whether its activation gate is currently open.
 - A downstream experiment is conditional until its structured activation_gate is satisfied by actual upstream result_status values. A module being ready to run is not evidence that it has produced a positive result.
-- Use only these canonical module IDs and roles in a microbe-metabolite-disease workflow: V1=direct_production_gate, V2=indirect_ecology_gate, V3=host_response_gate, A1=effect_interaction_gate, A2=direct_causal_rescue, A3=indirect_ecology_causal, and H1=human_translation. Never invent M1/M2/M3 aliases.
+- Use only these canonical module IDs and roles in a microbe-metabolite-disease workflow: V1=direct_production_gate, V2=indirect_ecology_gate, V3=host_response_gate, A1=effect_interaction_gate, A2=direct_causal_rescue, A3=indirect_ecology_causal, and C1=human_translation. Never invent M1/M2/M3 aliases.
 - For a microbe-metabolite-disease workflow, every live competing hypothesis must be linked to at least one named experimental module. Use hypothesis_ids to make that link explicit; a conditional module still needs a complete decision-level experiment card and is not a placeholder.
 - unlock_rule means the upstream condition that permits this module to start; it must never depend on the module's own result. Put consequences of this module's result only in branch_if_positive and branch_if_negative. The application will canonicalize activation gates and unlock rules.
 - State an explicit claim_boundary for every module. Association, host activity, efficacy, interaction, microbial production, and causal mediation are different claims and must not be substituted for one another.
@@ -315,12 +313,7 @@ def _entity_aliases(entity: str) -> List[str]:
 
 
 def _citation_entity_aliases(entity: str, is_microbe: bool = False) -> List[str]:
-    """Return conservative aliases for deciding whether a paper may be cited.
-
-    Literature retrieval may use broad genus or first-token variants, but those
-    variants are unsafe for citation adjudication because they can match a
-    different species or a chemically distinct multi-word metabolite.
-    """
+    pass
     value = str(entity or "").strip()
     if not value:
         return []
@@ -636,7 +629,7 @@ def _candidate_direct_culture_signal(
     bacteria_aliases: List[str],
     metabolite_aliases: List[str],
 ) -> bool:
-    """Conservative screen for same-paper, candidate-specific direct culture evidence."""
+    pass
     clean = re.sub(r"\s+", " ", str(text or "")).strip()
     if not clean or not _contains_entity(clean, bacteria_aliases) or not _contains_entity(clean, metabolite_aliases):
         return False
@@ -681,7 +674,7 @@ def _candidate_intervention_signal(
     entity_aliases: List[str],
     disease_aliases: List[str],
 ) -> bool:
-    """Require wording that the named entity itself, not a cocktail or diet, was administered."""
+    pass
     clean = re.sub(r"\s+", " ", str(text or "")).strip()
     if not clean or not _contains_nonnegated_entity(clean, entity_aliases) or not _contains_nonnegated_entity(clean, disease_aliases):
         return False
@@ -726,7 +719,7 @@ def _candidate_effect_signal(
     entity_aliases: List[str],
     disease_aliases: List[str],
 ) -> bool:
-    """Accept an explicit candidate effect while excluding observational level changes."""
+    pass
     clean = re.sub(r"\s+", " ", str(text or "")).strip()
     if not clean or _contains_any(clean, REVIEW_LIKE_TERMS):
         return False
@@ -766,7 +759,7 @@ def _candidate_effect_signal(
 
 
 def _candidate_entity_manipulation_signal(text: str, entity_aliases: List[str]) -> bool:
-    """Require the named entity itself to be added, removed, inoculated, cultured, or administered."""
+    pass
     clean = re.sub(r"\s+", " ", str(text or "")).strip()
     if not clean or not _contains_entity(clean, entity_aliases) or _contains_any(clean, REVIEW_LIKE_TERMS):
         return False
@@ -816,7 +809,7 @@ def _classify_candidate_article_evidence(
     metabolite_aliases: List[str],
     disease_aliases: List[str],
 ) -> tuple[str, str, bool]:
-    """Return evidence type, candidate relevance, and whether the PMID may be cited."""
+    pass
     has_b = _contains_entity(text, bacteria_aliases)
     has_m = _contains_entity(text, metabolite_aliases)
     has_d = _contains_entity(text, disease_aliases)
@@ -1270,7 +1263,7 @@ def _normalize_production_evidence_assessment(value: Any) -> dict:
 
 
 def _paper_reported_model_scope(text: str) -> str:
-    """Describe only the model explicitly visible in the retrieved paper text."""
+    pass
     lowered = str(text or "").lower()
     dss = bool(re.search(r"\b(?:dss|dextran sodium sulfate)\b", lowered))
     mouse = bool(re.search(r"\b(?:mouse|mice|murine)\b", lowered))
@@ -1620,16 +1613,16 @@ def _proposed_experiment_source_fields(note: str) -> dict:
 
 
 def _generic_candidate_in_vitro_plan(bacteria: str, metabolite: str, disease: str) -> List[dict]:
-    """Compatibility hook; fixed candidate module templates are intentionally disabled."""
+    pass
     return []
 
 def _generic_candidate_in_vivo_plan(bacteria: str, metabolite: str, disease: str) -> List[dict]:
-    """Compatibility hook; fixed candidate module templates are intentionally disabled."""
+    pass
     return []
 
 
 def _candidate_role_semantic_text(item: dict) -> str:
-    """Collect decision-level content used to verify a model-supplied role."""
+    pass
     values: List[str] = []
     for field in (
         "scientific_question",
@@ -1823,7 +1816,7 @@ CANDIDATE_ROLE_HYPOTHESIS_IDS = {
 
 
 def _candidate_module_completeness_score(item: dict) -> int:
-    """Prefer the most decision-complete draft when a model repeats one role."""
+    pass
     scalar_fields = (
         "scientific_question",
         "why_needed",
@@ -1852,7 +1845,7 @@ def _candidate_module_completeness_score(item: dict) -> int:
 
 
 def _dedupe_candidate_modules_by_role(items: List[dict]) -> List[dict]:
-    """Expose one canonical module per candidate role, never V1.2-style aliases."""
+    pass
     role_order: List[str] = []
     selected: Dict[str, tuple[int, dict]] = {}
     for item in items:
@@ -2008,7 +2001,7 @@ def _sanitize_nested_pmid_references(value: Any, allowed_pmids: set[str]) -> Any
 
 
 def _sanitize_candidate_plan_references(plan: dict) -> dict:
-    """Keep candidate-plan PubMed references on one grounded strong-evidence whitelist."""
+    pass
     assessment = _normalize_production_evidence_assessment(
         plan.get("direct_production_evidence_assessment")
     )
@@ -2685,7 +2678,7 @@ def _normalize_experiment_items(
             "analysis_plan": analysis_plan,
             "decision": decision,
             "parameters": parameter_provenance,
-            # Legacy projections remain until every caller consumes the compact schema.
+            
             "aim": _first_nonempty_text(item.get("aim"), objective),
             "hypothesis_tested": _as_str_list(item.get("hypothesis_tested")) or hypothesis_ids,
             "prerequisite_result": str(item.get("prerequisite_result") or "").strip(),
@@ -2762,7 +2755,7 @@ EXPERIMENT_ROLE_MODULE_BASE = {
     "effect_interaction_gate": "A1",
     "direct_causal_rescue": "A2",
     "indirect_ecology_causal": "A3",
-    "human_translation": "H1",
+    "human_translation": "C1",
 }
 EXPERIMENT_ROLE_PREREQUISITES = {
     "direct_production_gate": [],
@@ -2882,8 +2875,8 @@ def _normalize_gate_result_values(value: Any) -> List[str]:
         if raw is None or str(raw).strip() == "":
             continue
         status = _normalize_result_status(raw)
-        # Activation gates must be driven by observed outcomes. Planning or
-        # execution labels normalize to not_run and must never unlock a branch.
+        
+        
         if status == "not_run":
             continue
         if status not in normalized:
@@ -2993,7 +2986,7 @@ def _activation_gate_has_constraints(gate: Any) -> bool:
 
 
 def _enforce_role_activation_gate(role: str, provided_gate: Any) -> dict:
-    """Keep every canonical role gate code-owned, including empty V1/V3 gates."""
+    pass
     canonical_role = _canonicalize_experiment_role(role)
     required = _default_activation_gate(canonical_role)
     provided = _normalize_activation_gate(provided_gate)
@@ -3022,7 +3015,7 @@ def _canonical_gate_contract(role: str, provided_gate: Any = None) -> dict:
 
 
 def _canonicalize_module_reference_text(value: Any) -> str:
-    """Normalize obsolete route labels without rewriting biological uses such as M1 macrophages."""
+    pass
     text = str(value or "")
     text = re.sub(
         r"\(\s*(?:module\s+)?M([123])\s*\)",
@@ -3184,8 +3177,8 @@ def _evaluate_activation_gate(
     if operator == "any_of":
         if "met" in statuses:
             return {"status": "met", "reasons": []}
-        # Missing optional OR branches are not mandatory when at least one
-        # defined branch exists and is simply awaiting a result.
+        
+        
         if "unmet" in statuses:
             status = "unmet"
             reason_results = [result for result in clause_results if result.get("status") == "unmet"]
@@ -3426,7 +3419,7 @@ def _candidate_experiment_decision_issues(
 
 
 def _candidate_role_strategy_issues(item: dict) -> List[str]:
-    """Audit high-level causal design without requiring an SOP or fixed parameters."""
+    pass
     role = _canonicalize_experiment_role(item.get("experiment_role"))
     groups = item.get("groups") if isinstance(item.get("groups"), list) else []
     group_text = " ".join(
@@ -3930,7 +3923,7 @@ def _design_completeness_audit(plan: dict, strict_candidate_design: bool = False
 
 
 def _refresh_plan_level_structure(plan: dict, candidate_workflow: Optional[bool] = None) -> dict:
-    """Rebuild execution views and audits after any module-level mutation."""
+    pass
     is_candidate = _plan_is_candidate_workflow(plan) if candidate_workflow is None else bool(candidate_workflow)
     for key in ("in_vitro_plan", "in_vivo_plan", "human_plan"):
         if not isinstance(plan.get(key), list):
@@ -5585,7 +5578,7 @@ def _build_priority_followup_lines(plan: dict) -> List[str]:
 
 
 def _backfill_conditional_causal_followups(plan: dict) -> dict:
-    """Retain branch-specific A2/A3 decision cards without rebuilding a fixed plan."""
+    pass
     candidate = plan.get("candidate") if isinstance(plan.get("candidate"), dict) else {}
     bacteria = _strip_reference_noise(candidate.get("bacteria")) or "the candidate microbe"
     metabolite = _strip_reference_noise(candidate.get("metabolite")) or "the target metabolite"
@@ -5849,7 +5842,7 @@ def _build_question_driven_human_experiments(plan: dict) -> List[dict]:
             )
         return [
             {
-                "module_id": "H1",
+                "module_id": "C1",
                 "experiment_role": "human_translation",
                 "hypothesis_ids": ["HUMAN_BRANCH_PENDING"],
                 "route_status": "conditional",
@@ -6141,7 +6134,7 @@ def _render_execution_status(item: dict) -> str:
     status = str(item.get("execution_status") or "").strip().lower()
     if status in VALID_EXECUTION_STATUSES:
         return status
-    # Unknown-status blocks must not be promoted into the executable plan.
+    
     return "conditional_future"
 
 
@@ -7001,7 +6994,7 @@ def _build_candidate_missing_edge_query_specs(
     disease: str,
     evidence_strength_map: List[dict],
 ) -> List[dict]:
-    """Run one targeted second-round query for each unresolved candidate edge."""
+    pass
     support = {
         str(item.get("topic") or ""): str(item.get("support_level") or "speculative")
         for item in evidence_strength_map
@@ -8371,7 +8364,26 @@ def run_self_reflection(
     prompt_constraints: str,
     direct_production_evidence_assessment: Optional[dict] = None,
     hypothesis_branches: Optional[List[dict]] = None,
+    component_review_result: Optional[dict] = None,
+    progress_callback: Optional[Callable] = None,
 ) -> dict:
+    if component_review_result is None:
+        _report_progress(progress_callback, "component_review", "Reviewing five components with design, evidence and feasibility agents.", 89)
+        draft = {
+            "protocol": protocol_text,
+            "in_vitro_plan": in_vitro_plan,
+            "in_vivo_plan": in_vivo_plan,
+            "audit": audit_bundle,
+            "direct_production_evidence_assessment": direct_production_evidence_assessment,
+            "hypothesis_branches": hypothesis_branches,
+        }
+        component_review_result = refine_protocol_components(
+            protocol_text=json.dumps(draft, ensure_ascii=False, indent=2),
+            candidate_context=f"Microbe: {bacteria}\nMetabolite: {metabolite}\nDisease: {disease}\nResearch question: {research_question}",
+            literature_context=literature_context,
+            extra_requirements=prompt_constraints,
+        )
+    _report_progress(progress_callback, "self_reflection", "Reflecting on the assembled plan after component review.", 92)
     system_prompt = """You are the self-reflection and critical revision agent for a post-protocol validation plan.
 
 Return JSON with exactly these keys:
@@ -8381,6 +8393,9 @@ Return JSON with exactly these keys:
 - revised_in_vitro_plan
 - revised_in_vivo_plan
 - overall_risk_flags
+- revised_protocol_text
+
+revised_protocol_text must contain the complete reviewed protocol with the claim-level revisions applied. Preserve module IDs, activation gates, result states and parameter provenance.
 
 working_hypothesis must include:
 - statement
@@ -8441,8 +8456,11 @@ Microbe: {bacteria}
 Metabolite: {metabolite}
 Disease: {disease}
 
-Protocol under review:
-{_compact_protocol_text(protocol_text, 1200)}
+Assembled protocol after five-component review:
+{component_review_result.get('final_protocol') or protocol_text}
+
+Component review decisions and revisions:
+{json.dumps(component_review_result.get('module_results') or [], ensure_ascii=False)}
 
 User-defined Step 3 brief:
 {_format_user_brief(research_question, prompt_constraints)}
@@ -8496,6 +8514,8 @@ Return complete revised experiment arrays using the same compact fields supplied
             "overall_risk_flags": ["Automated reflection was unavailable; deterministic completeness and evidence filters were retained."],
         }
     return {
+        "component_review": component_review_result,
+        "revised_protocol_text": str(raw.get("revised_protocol_text") or component_review_result.get("final_protocol") or protocol_text).strip(),
         "working_hypothesis": raw.get("working_hypothesis") or {},
         "evidence_basis": _normalize_evidence_items(raw.get("evidence_basis")),
         "self_reflection": _normalize_reflection_items(raw.get("self_reflection")),
@@ -8555,6 +8575,7 @@ def assemble_validation_plan(
         research_question=research_question,
         prompt_constraints=prompt_constraints,
     )
+    plan["component_review"] = reflection_bundle.get("component_review") or {}
     if bacteria and metabolite:
         assessment = _normalize_production_evidence_assessment(
             hypothesis_bundle.get("direct_production_evidence_assessment")
@@ -8762,8 +8783,8 @@ def generate_validation_plan(
         direct_production_evidence_assessment=hypothesis_bundle.get("direct_production_evidence_assessment"),
         hypothesis_branches=hypothesis_bundle.get("hypothesis_branches"),
     )
-    _report_progress(progress_callback, "self_reflection", "Critiquing claims, citations, method transfers, and confidence.", 92)
     reflection_bundle = run_self_reflection(
+        progress_callback=progress_callback,
         bacteria=bacteria,
         metabolite=metabolite,
         disease=disease,
@@ -9035,8 +9056,8 @@ def generate_question_driven_validation_plan(
             vivo_bundle.get("in_vivo_plan") or [],
             is_in_vivo=True,
         )
-    _report_progress(progress_callback, "self_reflection", "Critiquing claims, citations, method transfers, and confidence.", 92)
     reflection_bundle = run_self_reflection(
+        progress_callback=progress_callback,
         bacteria=design_bacteria,
         metabolite=design_metabolite,
         disease=design_disease,

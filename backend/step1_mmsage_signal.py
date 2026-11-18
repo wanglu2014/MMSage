@@ -1,9 +1,4 @@
-"""
-Step 1: MMSage Pseudotime Signal Processing
-=============================================
-Load coordinates CSV files, parse bacteria/metabolite pairs,
-compute normalized MMSage signal, output top-N candidates.
-"""
+
 
 import re
 import json
@@ -16,20 +11,13 @@ import numpy as np
 
 
 def extract_bacteria_from_filename(filename: str) -> Optional[str]:
-    """
-    Extract bacteria name from coordinates filename.
-
-    Expected pattern:
-      pluscombno1V0317_min0_Akkermansia_muciniphila_seed_1_dim_...
-    Bacteria name sits between the third underscore-delimited token
-    and '_seed_'.
-    """
-    base = Path(filename).stem  # remove .csv extension
-    # Match everything between min0_ (or similar prefix) and _seed_
+    pass
+    base = Path(filename).stem  
+    
     m = re.search(r'_min\d+_(.+?)_seed_', base)
     if m:
         return m.group(1)
-    # Fallback: try to find genus_species pattern before _seed_
+    
     m = re.search(r'_([A-Z][a-z]+_[a-z]+(?:_[a-z]+)*)_seed_', base)
     if m:
         return m.group(1)
@@ -37,18 +25,14 @@ def extract_bacteria_from_filename(filename: str) -> Optional[str]:
 
 
 def parse_metabolite_from_rowname(rowname: str, bacteria: str) -> str:
-    """
-    Extract metabolite name from Row.names column.
-
-    Row.names format: "Isobutyric acid-Akkermansia_muciniphila"
-    """
-    # Remove quotes
+    pass
+    
     rowname = rowname.strip().strip('"')
-    # Split by the bacteria suffix
+    
     suffix = f"-{bacteria}"
     if suffix in rowname:
         return rowname.split(suffix)[0]
-    # Fallback: split by last hyphen followed by uppercase
+    
     parts = rowname.rsplit('-', 1)
     if len(parts) == 2:
         return parts[0]
@@ -59,16 +43,7 @@ def process_single_file(
     filepath: str,
     top_n: int = 200,
 ) -> list:
-    """
-    Process a single coordinates CSV file and return top-N candidates.
-
-    Args:
-        filepath: Path to a single *_coordinates_tunek.csv file
-        top_n: Number of top candidates to return
-
-    Returns:
-        List of candidate dicts sorted by mmsage_norm descending
-    """
+    pass
     fpath = Path(filepath)
     if not fpath.exists():
         raise FileNotFoundError(f"File not found: {filepath}")
@@ -86,7 +61,7 @@ def process_single_file(
     if 'Pseudotime' not in df.columns:
         raise ValueError(f"'Pseudotime' column not found in {fname}")
 
-    # Find the Row.names column
+    
     rowname_col = None
     if 'Row.names' in df.columns:
         rowname_col = 'Row.names'
@@ -125,9 +100,9 @@ def process_single_file(
         return []
 
     df_all = pd.DataFrame(all_candidates)
-    # Rank-based dual-end signal: distance to nearest endpoint (root or tip),
-    # then rank so that closest-to-endpoint = highest score.
-    # This avoids the linear normalization problem where most values cluster near 1.0.
+    
+    
+    
     def _rank_dual_end(group):
         pt = group['pseudotime']
         pt_max = pt.max()
@@ -139,7 +114,7 @@ def process_single_file(
         group['total_in_microbe'] = n
         return group
 
-    # 【修复】对于单文件处理，直接应用函数，避免触发 Pandas 2.0+ 的 groupby 索引丢失 Bug
+    
     df_all = _rank_dual_end(df_all)
     if 'bacteria' not in df_all.columns:
         df_all = df_all.reset_index()
@@ -169,17 +144,7 @@ def process_coordinates_dir(
     top_n: int = 200,
     bacteria_filter: Optional[str] = None,
 ) -> list:
-    """
-    Process all coordinates CSV files and return top-N candidates.
-
-    Args:
-        coordinates_dir: Path to directory containing *_coordinates_tunek.csv files
-        top_n: Number of top candidates to return
-        bacteria_filter: If set, only process files containing this string
-
-    Returns:
-        List of candidate dicts sorted by mmsage_norm descending
-    """
+    pass
     coord_dir = Path(coordinates_dir)
     pattern = str(coord_dir / "*_coordinates_tunek.csv")
     files = glob.glob(pattern)
@@ -208,16 +173,16 @@ def process_coordinates_dir(
         except Exception:
             continue
 
-        # Ensure required columns exist
+        
         if 'Pseudotime' not in df.columns:
             continue
 
-        # Find the Row.names column (could be unnamed first col or 'Row.names')
+        
         rowname_col = None
         if 'Row.names' in df.columns:
             rowname_col = 'Row.names'
         elif df.columns[0] == '' or df.columns[0].startswith('Unnamed'):
-            # Check second column
+            
             if len(df.columns) > 1 and 'Row.names' in df.columns.tolist():
                 rowname_col = 'Row.names'
             else:
@@ -225,7 +190,7 @@ def process_coordinates_dir(
         else:
             rowname_col = df.columns[0]
 
-        # Parse each row
+        
         max_pt = df['Pseudotime'].max()
         if max_pt <= 0 or pd.isna(max_pt):
             continue
@@ -255,10 +220,10 @@ def process_coordinates_dir(
     if not all_candidates:
         return []
 
-    # Build DataFrame for efficient processing
+    
     df_all = pd.DataFrame(all_candidates)
 
-    # Rank-based dual-end signal (same logic as process_single_file)
+    
     def _rank_dual_end(group):
         pt = group['pseudotime']
         pt_max = pt.max()
@@ -271,18 +236,18 @@ def process_coordinates_dir(
         return group
 
     df_all = df_all.groupby('bacteria', group_keys=False).apply(_rank_dual_end)
-    # 【修复】防止批量处理时 Pandas 将 bacteria 吞并到 Index 中
+    
     if 'bacteria' not in df_all.columns:
         df_all = df_all.reset_index()
 
-    # Sort globally by mmsage_norm descending, take top_n
+    
     df_all = df_all.sort_values('mmsage_norm', ascending=False)
 
-    # Deduplicate: keep best score per (bacteria, metabolite) pair
+    
     df_dedup = df_all.drop_duplicates(subset=['bacteria', 'metabolite'], keep='first')
     df_top = df_dedup.head(top_n)
 
-    # Build output
+    
     results = []
     for _, row in df_top.iterrows():
         results.append({
@@ -306,19 +271,7 @@ def run_step1(
     bacteria_filter: Optional[str] = None,
     coordinates_file: Optional[str] = None,
 ) -> list:
-    """
-    Run step 1 and save results.
-
-    Args:
-        coordinates_dir: Path to coordinates CSV directory
-        output_path: Path to save output JSON
-        top_n: Number of top candidates
-        bacteria_filter: Optional filter for bacteria name in filename
-        coordinates_file: If set, process this single file instead of directory
-
-    Returns:
-        List of candidate dicts
-    """
+    pass
     print("=" * 60)
     print("  STEP 1: MMSage Signal Processing")
     print("=" * 60)

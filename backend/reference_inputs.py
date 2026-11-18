@@ -1,4 +1,4 @@
-"""Stage uploaded tables in the layout consumed by the M1–M4 scripts."""
+
 import csv
 import math
 from pathlib import Path
@@ -37,7 +37,7 @@ def write_table(path, rows):
 
 
 def align_common_samples(mic, met, minimum=3):
-    """Keep shared samples using the metabolite-file order used by TreeMM."""
+    pass
     mic_positions = {sample: i for i, sample in enumerate(mic[0][1:], start=1)}
     shared = [sample for sample in met[0][1:] if sample in mic_positions]
     if len(shared) < minimum:
@@ -53,12 +53,7 @@ def align_common_samples(mic, met, minimum=3):
 
 
 def derive_reference_tables(microbe_path, metabolite_path, job_dir, taxonomy_source=None):
-    """Create the M1/M2 auxiliary tables from the two uploaded matrices.
-
-    Taxonomy is inferred from feature IDs. This is useful when IDs already contain
-    species names; CAG-only IDs remain valid inputs but will not match a named M1
-    target unless the ID itself contains that target name.
-    """
+    pass
     mic, met = align_common_samples(matrix(microbe_path), matrix(metabolite_path))
     samples = mic[0][1:]
     mic_ids = [row[0] for row in mic[1:]]
@@ -108,7 +103,7 @@ def stage_inputs(job_dir, microbe_path, metabolite_path, taxonomy_path=None, cor
     tax = read_table(taxonomy_path)
     if len(tax[0]) != 2:
         raise ValueError("Taxonomy must contain exactly two columns: CAG and species")
-    # Preserve identifiers used in output filenames; reject path components.
+    
     for row in mic[1:]:
         if any(c in row[0] for c in '/\\:*?"<>|') or row[0] in ('.', '..'):
             raise ValueError("Microbial IDs must be valid filename components")

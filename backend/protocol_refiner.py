@@ -1,8 +1,4 @@
-"""
-Step 3 protocol refinement layer.
 
-This module keeps storage file-based and does not modify database/catalog logic.
-"""
 
 from __future__ import annotations
 
@@ -16,7 +12,7 @@ from uuid import uuid4
 
 try:
     import requests
-except ImportError:  # pragma: no cover - runtime guard
+except ImportError:  
     requests = None
 
 from llm_reasoning import OPENAI_API_BASE, OPENAI_API_KEY, OPENAI_MODEL
@@ -647,7 +643,7 @@ Produce the revised module."""
 
 
 def _needs_second_round(reviews: List[dict], synthesis: dict) -> bool:
-    if synthesis.get("blocking_issues"):
+    if synthesis.get("blocking_issues") or synthesis.get("overall_decision") == "blocked":
         return True
     for review in reviews:
         if review.get("overall_judgment") in {"weak", "blocked"}:
@@ -667,7 +663,7 @@ Return JSON with:
 - change_summary
 - remaining_risks
 
-The final text should be polished but still concrete and experimentally oriented."""
+The final text should be polished but still concrete and experimentally oriented. Preserve biological module IDs, hypothesis branches, activation gates, execution and result states, parameter provenance, and unresolved evidence limitations. Review components are sections of the audit, not biological experiment modules."""
         user_prompt = f"""Candidate context:
 {candidate_context}
 
@@ -789,23 +785,15 @@ def confirm_refinement_session(session_id: str, modules: List[dict], extra_requi
     return {"session_id": session_id, "status": session["status"], "modules": merged, "extra_requirements": session["extra_requirements"]}
 
 
-def run_refinement_session(session_id: str) -> dict:
-    session_dir = _session_dir(session_id)
-    session = _load_json(session_dir / "session.json")
-    if not session:
-        raise FileNotFoundError("Refinement session not found.")
-
-    protocol_v0 = _load_json(session_dir / "protocol_v0.json") or {}
-    modules_blob = _load_json(session_dir / "modules_confirmed.json") or _load_json(session_dir / "modules_v0.json") or {"modules": []}
-    modules = modules_blob.get("modules") or []
-    candidate_context = protocol_v0.get("candidate_context", "")
-    literature_context = protocol_v0.get("literature_context", "")
-    extra_requirements = session.get("extra_requirements", "")
-
-    session["status"] = "review_running"
-    session["updated_at"] = _now_iso()
-    _save_json(session_dir / "session.json", session)
-
+def refine_protocol_components(
+    protocol_text: str,
+    candidate_context: str,
+    literature_context: str,
+    extra_requirements: str = "",
+    modules: Optional[List[dict]] = None,
+) -> dict:
+    if modules is None:
+        modules = decompose_protocol(protocol_text, candidate_context)
     refined_modules = []
     module_results = []
     debate_points: List[str] = []
@@ -864,17 +852,70 @@ def run_refinement_session(session_id: str) -> dict:
         )
 
     final_protocol = _build_final_protocol(refined_modules, candidate_context, extra_requirements, debate_points)
+    return {
+        "modules": refined_modules,
+        "module_results": module_results,
+        "final_protocol": final_protocol.get("protocol_full_text") or protocol_text,
+        "change_summary": final_protocol.get("change_summary", []),
+        "remaining_risks": final_protocol.get("remaining_risks", []),
+    }
+
+
+def run_refinement_session(session_id: str) -> dict:
+    session_dir = _session_dir(session_id)
+    session = _load_json(session_dir / "session.json")
+    if not session:
+        raise FileNotFoundError("Refinement session not found.")
+
+    protocol_v0 = _load_json(session_dir / "protocol_v0.json") or {}
+    modules_blob = _load_json(session_dir / "modules_confirmed.json") or _load_json(session_dir / "modules_v0.json") or {"modules": []}
+    modules = modules_blob.get("modules") or []
+    candidate_context = protocol_v0.get("candidate_context", "")
+    literature_context = protocol_v0.get("literature_context", "")
+    extra_requirements = session.get("extra_requirements", "")
+
+    session["status"] = "review_running"
+    session["updated_at"] = _now_iso()
+    _save_json(session_dir / "session.json", session)
+
+    review = refine_protocol_components(
+        protocol_text=protocol_v0.get("protocol", ""),
+        candidate_context=candidate_context,
+        literature_context=literature_context,
+        extra_requirements=extra_requirements,
+        modules=modules,
+    )
+    from validation_planner import run_self_reflection
+
+    candidate = session.get("candidate") or {}
+    reflection = run_self_reflection(
+        bacteria=candidate.get("bacteria", ""),
+        metabolite=candidate.get("metabolite", ""),
+        disease=candidate.get("disease", "IBD"),
+        protocol_text=review["final_protocol"],
+        audit_bundle={},
+        literature_context=literature_context,
+        evidence_strength_map=[],
+        query_log=[],
+        protocols_io_evidence={},
+        in_vitro_plan=[],
+        in_vivo_plan=[],
+        research_question="",
+        prompt_constraints=extra_requirements,
+        component_review_result=review,
+    )
     result = {
         "session_id": session_id,
         "status": "completed",
         "candidate": session.get("candidate") or {},
         "protocol_v0": protocol_v0.get("protocol", ""),
         "extra_requirements": extra_requirements,
-        "modules": refined_modules,
-        "module_results": module_results,
-        "final_protocol": final_protocol.get("protocol_full_text", ""),
-        "change_summary": final_protocol.get("change_summary", []),
-        "remaining_risks": final_protocol.get("remaining_risks", []),
+        "modules": review["modules"],
+        "module_results": review["module_results"],
+        "final_protocol": reflection["revised_protocol_text"],
+        "self_reflection": reflection["self_reflection"],
+        "change_summary": review["change_summary"],
+        "remaining_risks": review["remaining_risks"] + reflection["overall_risk_flags"],
         "updated_at": _now_iso(),
     }
 
