@@ -1,4 +1,4 @@
-"""Multi-agent evidence aggregation system."""
+
 
 from .hop_evidence import HopEvidence
 from .microbe_metabolite_agent import MicrobeMetaboliteAgent
