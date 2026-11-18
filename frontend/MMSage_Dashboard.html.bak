@@ -34,8 +34,6 @@
           -webkit-print-color-adjust: exact;
           print-color-adjust: exact;
         }
-
-        /* Force stacked layout to avoid grid/canvas offset in print */
         .grid,
         .grid-cols-12,
         .col-span-12,
@@ -51,14 +49,10 @@
         .space-y-4 {
           gap: 0 !important;
         }
-
-        /* Keep each card together on one page when possible */
         .rounded-xl {
           break-inside: avoid;
           page-break-inside: avoid;
         }
-
-        /* Force each Step module onto its own page (avoid splitting). */
         #step1-card {
           page: landscape;
           break-after: page;
@@ -102,8 +96,6 @@
           background: #fff !important;
           padding: 0 !important;
         }
-
-        /* Stabilize chart/canvas print dimensions */
         #main-plot,
         #kg {
           width: 100% !important;
@@ -142,8 +134,6 @@
           max-height: 186mm !important;
           object-fit: contain;
         }
-
-        /* Plotly SVG — vector in PDF */
         .print-figure--vector {
           display: block;
         }
@@ -159,8 +149,6 @@
           width: 100% !important;
           height: 100% !important;
         }
-
-        /* Hide interactive controls and heavy scrolling in print */
         button,
         input[type="file"] {
           display: none !important;
@@ -190,7 +178,7 @@
 
       const MM_TO_PX_150 = 150 / 25.4;
 
-      /** Step 1: full A4 portrait width, height = 1/3 page (210 × 99 mm) */
+                                                                            
       const A4_PORTRAIT_THIRD = {
         widthMm: 210,
         heightMm: 297 / 3,
@@ -198,7 +186,7 @@
         heightPx: Math.round((297 / 3) * MM_TO_PX_150),
       };
 
-      /** A4 landscape — 297 × 210 mm @ ~150 dpi (Step 2 KG export/print) */
+                                                                            
       const A4_LANDSCAPE = {
         widthMm: 297,
         heightMm: 210,
@@ -206,7 +194,7 @@
         heightPx: 1240,
       };
 
-      /** Publication figure settings */
+                                        
       const FIGURE = {
         plot: { format: "svg", width: A4_PORTRAIT_THIRD.widthPx, height: A4_PORTRAIT_THIRD.heightPx },
         plotPng: { format: "png", width: A4_PORTRAIT_THIRD.widthPx, height: A4_PORTRAIT_THIRD.heightPx, scale: 3 },
@@ -479,12 +467,12 @@
           setDisease(data?.disease || "IBD");
         }, []);
 
-        // Load candidates
+                          
         useEffect(() => {
           loadCandidates(initialRunId).catch(console.error);
         }, [initialRunId, loadCandidates]);
 
-        // Render quadrant plot
+                               
         useEffect(() => {
           if (candidates.length > 0) {
             setTimeout(() => renderQuadrantPlot(candidates, thresholds), 100);
@@ -542,7 +530,7 @@
           };
         }, [validationPlanJobId, validationPlanLoading]);
 
-        // Reflow charts before printing to avoid canvas/SVG offset.
+                                                                    
         useEffect(() => {
           const handleBeforePrint = () => {
             const plotEl = document.getElementById("main-plot");
@@ -560,7 +548,7 @@
           };
 
           window.addEventListener("beforeprint", handleBeforePrint);
-          // Some browsers fire print layout after beforeprint; run once more shortly after.
+                                                                                            
           const mediaQuery = window.matchMedia("print");
           const onMqChange = (e) => {
             if (e.matches) {
@@ -587,13 +575,13 @@
           const el = document.getElementById("main-plot");
           if (!el) return;
 
-          // Only show points with evidence > 0 (bm+md=0 → see Uncharted Dark Matter panel below)
+                                                                                                 
           const withEvidence = data.filter(d => ((d.pair_bm_exp ?? 0) + (d.pair_md_exp ?? 0)) > 0);
 
-          // Three groups:
-          // 1. Known (novelty < 1.0) → cross marker
-          // 2. Top 5% novel by composite_score → star marker + auto-label metabolite name
-          // 3. Other novel → circle marker
+                          
+                                                    
+                                                                                          
+                                           
           const known = withEvidence.filter(d => (d.novelty_score ?? 1) < 1.0);
           const allNovel = withEvidence.filter(d => (d.novelty_score ?? 1) >= 1.0);
           const topN = 10;
@@ -612,8 +600,8 @@
             return tip;
           };
 
-          // Point size based on composite_score (continuous, good spread)
-          // novelty is almost always 1.0 so useless for sizing
+                                                                          
+                                                               
           const compScores = withEvidence.map(d => d.composite_score ?? 0);
           const compMax = Math.max(...compScores, 1);
           const compSize = (d, minS, maxS) => {
@@ -622,7 +610,7 @@
           };
 
           const traces = [
-            // Known → cross (×)
+                                
             {
               x: known.map(d => d.mmsage_norm),
               y: known.map(d => (d.pair_bm_exp ?? 0) + (d.pair_md_exp ?? 0)),
@@ -639,7 +627,7 @@
               hovertemplate: "%{text}<extra></extra>",
               _items: known,
             },
-            // Other novel → circle (●)
+                                       
             {
               x: otherNovel.map(d => d.mmsage_norm),
               y: otherNovel.map(d => (d.pair_bm_exp ?? 0) + (d.pair_md_exp ?? 0)),
@@ -656,7 +644,7 @@
               hovertemplate: "%{text}<extra></extra>",
               _items: otherNovel,
             },
-            // Top 5% novel → star (★) with text labels
+                                                       
             {
               x: topNovel.map(d => d.mmsage_norm),
               y: topNovel.map(d => (d.pair_bm_exp ?? 0) + (d.pair_md_exp ?? 0)),
@@ -679,7 +667,7 @@
             },
           ];
 
-          // Size legend: dummy traces to show composite_score → size mapping
+                                                                             
           const sizeLegendValues = [0.2, 0.5, 1.0];
           const sizeLegendLabels = ["Composite Low", "Composite Mid", "Composite High"];
           sizeLegendValues.forEach((ratio, i) => {
@@ -697,18 +685,18 @@
 
           const allEF = data.map(d => (d.pair_bm_exp ?? 0) + (d.pair_md_exp ?? 0));
 
-          // Use log(1+y) transform for Y axis to spread out the skewed distribution
-          // Most candidates have evidence=0, a few have 100+, log scale makes all 4 quadrants visible
+                                                                                    
+                                                                                                      
           const logY = (v) => Math.log2(1 + v);
           const yRaw = allEF;
           const yTransformed = yRaw.map(logY);
           const yMaxT = Math.max(...yTransformed, 1) * 1.1;
           const tx = thresh.mmsage;
-          // Transform the threshold too; if threshold=0, use a small visual offset so bottom quadrants are visible
-          const tyRaw = Math.max(thresh.evidence, 1);  // at least 1 paper as threshold if median=0
+                                                                                                                   
+          const tyRaw = Math.max(thresh.evidence, 1);                                              
           const ty = logY(tyRaw);
 
-          // Transform the trace Y values
+                                         
           traces.forEach(tr => {
             tr.y = tr.y.map(v => logY(v));
           });
@@ -765,7 +753,7 @@
           });
         }, []);
 
-        // Upload coordinates CSV
+                                 
         const handleUpload = async () => {
           const file = fileRef.current?.files?.[0];
           if (!file) return;
@@ -795,7 +783,7 @@
             }
             const jobId = data.job_id || "";
             setCurrentJobId(jobId);
-            // Pipeline started in background — poll for progress
+                                                                 
             setUploadMsg(`Pipeline started for ${disease}... (step1: MMSage signal)`);
             const poll = setInterval(async () => {
               try {
@@ -816,7 +804,7 @@
                 } else {
                   setUploadMsg(`Pipeline running... ${pg.step || ""} (${pg.disease})`);
                 }
-              } catch (e) { /* ignore poll errors */ }
+              } catch (e) {                          }
             }, 3000);
           } catch (err) {
             setUploadMsg("Upload failed: " + err.message);
@@ -831,7 +819,7 @@
           return fallback;
         };
 
-        // Analyze selected pair
+                                
         const handleAnalyze = async () => {
           if (!selectedPair) return;
           setLoading(true);
@@ -970,17 +958,17 @@
           window._kgCy = cytoscape({
             container,
             elements: [...nodes, ...edges],
-            // 开启鼠标滚轮缩放和平移（你可以直接用鼠标滚轮放大看细节）
+
             userZoomingEnabled: true,
             userPanningEnabled: true,
             style: [
-              // 1. 基础节点：字号加码，底色反差拉满
+
               { selector: "node", style: {
                 "label": "data(label)",
                 "background-color": function(ele) { return KG_COLORS[ele.data("type")] || "#cbd5e1"; },
                 "shape": function(ele) { return KG_SHAPES[ele.data("type")] || "ellipse"; },
                 "color": "#111827", 
-                "font-size": 18, // 科研展示加强可读性
+                "font-size": 18,
                 "font-weight": "700",
                 "text-wrap": "wrap", 
                 "text-max-width": 180,
@@ -993,23 +981,23 @@
                 "text-background-shape": "roundrectangle",
                 "text-outline-color": "#ffffff",
                 "text-outline-width": 2,
-                "width": 66, // 基础节点加大
+                "width": 66,
                 "height": 66, 
                 "border-width": 2, 
                 "border-color": "#ffffff",
               }},
-              // 2. 三个核心靶点：巨无霸尺寸，绝对的视觉焦点
+
               { selector: "node[?is_core]", style: {
-                "width": 116, // 核心节点进一步放大
+                "width": 116,
                 "height": 116, 
-                "font-size": 24, // 核心字号进一步提高
+                "font-size": 24,
                 "font-weight": "900",
                 "text-max-width": 220,
                 "border-width": 5, 
                 "border-color": "#1e3a8a",
                 "text-background-opacity": 1,
               }},
-              // 3. 基础连线：加粗加白边
+
               { selector: "edge", style: {
                 "width": 3, 
                 "line-color": "#cbd5e1", 
@@ -1023,7 +1011,7 @@
                 "text-outline-color": "#ffffff",
                 "text-outline-width": 4,
               }},
-              // 4. 核心推理主链：极粗，深蓝色醒目显示
+
               { selector: "edge[?is_chain]", style: {
                 "width": 7, 
                 "line-color": "#2563eb", 
@@ -1039,13 +1027,13 @@
                 "border-color": "#eab308",
               }},
             ],
-            // 5. 核心魔法：缩短物理间距，骗系统自动放大镜头！
+
             layout: { 
               name: "dagre", 
               rankDir: "LR", 
-              nodeSep: 30,   // 把上下的间距狠狠压缩
-              rankSep: 90,   // 把左右的层级间距狠狠压缩
-              padding: 15    // 去掉过多的边缘留白
+              nodeSep: 30,
+              rankSep: 90,
+              padding: 15
             }
           });
 
@@ -1097,7 +1085,7 @@
               )}
             </header>
 
-            {/* Upload Section */}
+            {                    }
             <div className="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-xl flex items-center gap-4 flex-wrap">
               <div>
                 <span className="text-sm font-medium text-gray-700">Disease:</span>
@@ -1136,10 +1124,10 @@
               )}
             </div>
 
-            {/* ====== 核心布局区：分两排，确保左右完美对齐 ====== */}
+            
             <div className="flex flex-col gap-6">
               
-              {/* --- 第一排：Step 1 (左侧) + Candidates (右侧) --- */}
+              
               <div className="grid grid-cols-12 gap-6 items-start">
                 <div id="step1-card" className="col-span-12 lg:col-span-8 bg-white rounded-xl p-4 border border-gray-200 shadow-sm flex flex-col">
                   <h2 className="text-2xl mb-2 flex items-center gap-2 text-gray-900 font-semibold">
@@ -1150,7 +1138,7 @@
                         const plotEl = document.getElementById("main-plot");
                         if (plotEl) downloadPlotSvg(plotEl);
                       }} className="text-xs px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition"
-                        title="Vector SVG — 210×99 mm (A4 页宽 × 页高 1/3)">
+                        title="Vector SVG — 210×99 mm">
                         Export SVG
                       </button>
                       <button onClick={() => {
@@ -1169,7 +1157,7 @@
                   )}
                 </div>
 
-                {/* Candidate List */}
+                {                    }
                 <div className="col-span-12 lg:col-span-4 bg-white rounded-xl p-4 border border-gray-200 shadow-sm flex flex-col">
                   <h3 className="text-lg mb-2 text-gray-900">Candidates ({candidates.length} total)</h3>
                   <div className="space-y-2 max-h-[480px] overflow-y-auto pr-1 flex-1">
@@ -1230,7 +1218,7 @@
                 </div>
               </div>
 
-              {/* --- Uncharted Dark Matter：低调展示，默认仅 3 条 --- */}
+              
               <div id="uncharted-dark-matter" className="col-span-12 bg-gray-50/80 rounded-lg px-3 py-2.5 border border-gray-100">
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                   <h3 className="text-xs font-medium text-gray-500">
@@ -1299,11 +1287,11 @@
                 )}
               </div>
 
-              {/* --- 第二排：Step 2 (左侧) + Analysis (右侧) --- */}
-              {/* 利用 CSS Grid 的同排等高特性，彻底解决高度不对齐问题！ */}
+              
+              
               <div className="grid grid-cols-12 gap-6">
                 
-                {/* Step 2: Knowledge Graph */}
+                {                             }
                 <div id="step2-card" className="col-span-12 lg:col-span-8 bg-white rounded-xl p-4 border border-gray-200 shadow-sm flex flex-col">
                   <div className="flex items-center justify-between mb-2">
                   <h2 className="text-2xl text-gray-900 font-semibold">Step 2: Knowledge Graph</h2>
@@ -1332,7 +1320,7 @@
                       </button>
                     </div>
                   </div>
-                  {/* 使用 flex-1 让画板自动撑满高度 */}
+                  
                   <div id="kg" className="flex-1 min-h-[480px] bg-gray-50 rounded-lg border border-gray-100 screen-only"></div>
                   <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs text-gray-600 screen-only">
                     <div className="flex items-center gap-2">
@@ -1379,7 +1367,7 @@
                   )}
                 </div>
 
-                {/* Analysis */}
+                {              }
                 <div className="col-span-12 lg:col-span-4 bg-white rounded-xl p-4 border border-gray-200 shadow-sm flex flex-col">
                   <h2 className="text-xl mb-2 text-gray-900">Analysis</h2>
                   {selectedPair ? (
@@ -1408,7 +1396,7 @@
                           </span>
                         </div>
                       </div>
-                      {/* mt-auto 把蓝色背景框推到最底部 */}
+                      
                       {analysisResult && (
                         <div className="bg-indigo-50 rounded-lg p-3 border-l-4 border-indigo-500 mt-auto">
                           <div className="text-sm text-indigo-900 font-medium">{analysisResult.causal_chain}</div>
@@ -1423,7 +1411,7 @@
 
             </div>
 
-            {/* ====== 底部通栏：Step 3 Validation Protocol ====== */}
+            
             <div id="step3-card" className="mt-6 bg-white rounded-xl p-5 border border-gray-200 shadow-sm">
               <div className="border-b border-gray-100 pb-2 mb-3">
                 <h2 className="text-xl text-gray-900 font-semibold">Step 3: Evidence Gap and Follow-up Plan</h2>

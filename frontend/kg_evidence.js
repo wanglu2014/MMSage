@@ -1,6 +1,6 @@
-/**
- * Knowledge graph node click → literature evidence panel (shared by Dashboard & browse/record).
- */
+   
+                                                                                                
+   
 (function (global) {
   const HOP_LABELS = {
     microbe_metabolite: "Microbe–Metabolite",

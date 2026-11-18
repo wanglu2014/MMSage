@@ -32,7 +32,7 @@
     </nav>
 
     <main class="max-w-7xl mx-auto px-4 py-6">
-        <!-- On-demand query -->
+        
         <div class="card mb-6">
             <h2 class="text-lg font-semibold mb-4">On-Demand Agent Query</h2>
             <div class="flex space-x-4 items-end">
@@ -59,7 +59,7 @@
             <div id="query-status" class="mt-2 text-sm text-gray-500"></div>
         </div>
 
-        <!-- Single result detail -->
+        
         <div id="single-result" class="hidden">
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                 <div class="card text-center">
@@ -78,7 +78,7 @@
                 </div>
             </div>
 
-            <!-- Hop details -->
+            
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                 <div class="card" id="hop-mm">
                     <h3 class="font-semibold text-sm mb-2">Microbe - Metabolite</h3>
@@ -103,20 +103,20 @@
                 </div>
             </div>
 
-            <!-- Hop bar chart -->
+            
             <div class="card mb-6">
                 <h2 class="text-lg font-semibold mb-4">Hop Co-occurrence Comparison</h2>
                 <div id="hop-chart" style="height: 300px;"></div>
             </div>
 
-            <!-- Sources -->
+            
             <div class="card">
                 <h2 class="text-lg font-semibold mb-4">All Evidence Sources</h2>
                 <ul id="sr-sources" class="list-disc list-inside text-sm text-gray-700 space-y-1"></ul>
             </div>
         </div>
 
-        <!-- Batch results table -->
+        
         <div class="card mt-6">
             <h2 class="text-lg font-semibold mb-4">Batch Agent Evidence (from pipeline)</h2>
             <div class="overflow-x-auto">
@@ -164,13 +164,13 @@
         const bn = data.bottleneck || '';
         document.getElementById('sr-bottleneck').textContent = bn.replace('_', '-');
 
-        // Hop counts
+                     
         const hc = data.hop_counts || {};
         document.getElementById('hop-mm-count').textContent = hc.microbe_metabolite || 0;
         document.getElementById('hop-md-count').textContent = hc.metabolite_disease || 0;
         document.getElementById('hop-bd-count').textContent = hc.microbe_disease || 0;
 
-        // DB hits per hop
+                          
         const dbHits = data.db_hits || {};
         for (const [hopType, prefix] of [['microbe_metabolite','hop-mm'],['metabolite_disease','hop-md'],['microbe_disease','hop-bd']]) {
             const el = document.getElementById(`${prefix}-dbs`);
@@ -178,7 +178,7 @@
             el.innerHTML = Object.entries(hits).map(([k,v]) => dbBadge(k, v)).join(' ');
         }
 
-        // Sources per hop
+                          
         if (data.hop_evidence) {
             for (const he of data.hop_evidence) {
                 const prefix = {microbe_metabolite:'hop-mm', metabolite_disease:'hop-md', microbe_disease:'hop-bd'}[he.hop_type];
@@ -188,11 +188,11 @@
             }
         }
 
-        // All sources
+                      
         const srcEl = document.getElementById('sr-sources');
         srcEl.innerHTML = (data.sources || []).map(s => `<li>${s}</li>`).join('');
 
-        // Bar chart
+                    
         Plotly.newPlot('hop-chart', [{
             x: ['Microbe-Metabolite', 'Metabolite-Disease', 'Microbe-Disease'],
             y: [hc.microbe_metabolite||0, hc.metabolite_disease||0, hc.microbe_disease||0],
@@ -268,7 +268,7 @@
         } catch (e) {}
     }
 
-    // Auto-fill from URL params
+                                
     const params = new URLSearchParams(window.location.search);
     if (params.get('bacteria')) document.getElementById('q-bacteria').value = params.get('bacteria');
     if (params.get('metabolite')) document.getElementById('q-metabolite').value = params.get('metabolite');

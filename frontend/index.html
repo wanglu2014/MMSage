@@ -31,7 +31,7 @@
     </nav>
 
     <main class="max-w-7xl mx-auto px-4 py-6">
-        <!-- Summary Cards -->
+        
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
             <div class="card">
                 <div class="text-sm text-gray-500">Total Candidates</div>
@@ -51,13 +51,13 @@
             </div>
         </div>
 
-        <!-- Quadrant Scatter Plot -->
+        
         <div class="card mb-6">
             <h2 class="text-lg font-semibold mb-4">Dual-Axis Quadrant Plot (X = MMSage, Y = Chain Novelty)</h2>
             <div id="quadrant-plot" style="height: 500px;"></div>
         </div>
 
-        <!-- Top Candidates Table -->
+        
         <div class="card">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-lg font-semibold">Top Candidates</h2>
@@ -157,7 +157,7 @@
             traces[q].text.push(`${d.bacteria || '?'} x ${d.metabolite || '?'}<br>chain_count=${d.chain_count || 0}`);
         });
 
-        // Compute adaptive thresholds (median of each axis)
+                                                            
         const xVals = data.map(d => d.mmsage_norm || 0).sort((a,b) => a-b);
         const yVals = data.map(d => d.chain_novelty != null ? d.chain_novelty : 1).sort((a,b) => a-b);
         const n = xVals.length;
@@ -218,7 +218,7 @@
             }
             if (pathInfo.length > 80) pathInfo = pathInfo.substring(0, 77) + '...';
 
-            // Agent evidence summary
+                                     
             let agentInfo = '';
             if (d.agent_hop_counts) {
                 const hc = d.agent_hop_counts;

@@ -28,7 +28,7 @@
     </nav>
 
     <main class="max-w-7xl mx-auto px-4 py-6">
-        <!-- Controls -->
+        
         <div class="bg-white rounded-lg shadow p-4 mb-4 flex flex-wrap items-end gap-3">
             <div>
                 <label class="text-sm text-gray-500 block">Search Node</label>
@@ -65,12 +65,12 @@
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
-            <!-- Graph -->
+            
             <div class="lg:col-span-3 bg-white rounded-lg shadow p-2">
                 <div id="cy"></div>
             </div>
 
-            <!-- Edge/Node Info Panel -->
+            
             <div class="bg-white rounded-lg shadow p-4">
                 <h3 class="font-semibold mb-3">Details</h3>
                 <div id="info-panel" class="text-sm text-gray-600">
@@ -91,9 +91,9 @@
     };
 
     let cy = null;
-    let currentMode = 'full'; // 'full' or 'chain'
+    let currentMode = 'full';                     
 
-    // --- Shared styles ---
+                            
     const baseNodeStyle = {
         'label': 'data(label)',
         'text-valign': 'bottom',
@@ -122,7 +122,7 @@
         'color': '#999',
     };
 
-    // --- Full graph mode (original cose layout) ---
+                                                     
     function initCytoscapeFull(elements) {
         if (cy) cy.destroy();
         currentMode = 'full';
@@ -142,7 +142,7 @@
         bindClickHandlers();
     }
 
-    // --- Chain view mode (dagre left-to-right layout) ---
+                                                           
     function initCytoscapeChain(elements) {
         if (cy) cy.destroy();
         currentMode = 'chain';
@@ -151,7 +151,7 @@
             container: document.getElementById('cy'),
             elements: elements,
             style: [
-                // Non-core nodes: small, semi-transparent
+                                                          
                 {
                     selector: 'node',
                     style: {
@@ -164,7 +164,7 @@
                         'border-color': '#d1d5db',
                     }
                 },
-                // Core nodes: large, bold, fully opaque
+                                                        
                 {
                     selector: 'node[?is_core]',
                     style: {
@@ -177,7 +177,7 @@
                         'border-color': '#1e293b',
                     }
                 },
-                // Non-chain edges: thin, light
+                                               
                 {
                     selector: 'edge',
                     style: {
@@ -191,7 +191,7 @@
                         'opacity': 0.5,
                     }
                 },
-                // Chain edges: thick, solid, dark
+                                                  
                 {
                     selector: 'edge[?is_chain]',
                     style: {
@@ -247,7 +247,7 @@
         });
     }
 
-    // --- Load full graph (original mode) ---
+                                              
     async function loadGraph() {
         const search = document.getElementById('search-node').value.trim();
         const filterType = document.getElementById('filter-type').value;
@@ -289,7 +289,7 @@
         }
     }
 
-    // --- Load chain view (focused single-chain mode) ---
+                                                          
     async function loadChainView() {
         const bacteria = document.getElementById('chain-bacteria').value.trim();
         const metabolite = document.getElementById('chain-metabolite').value.trim();
@@ -321,7 +321,7 @@
         }
     }
 
-    // --- Export PNG (high-res, white background) ---
+                                                      
     function exportPNG() {
         if (!cy) { alert('No graph loaded.'); return; }
 
@@ -344,7 +344,7 @@
         if (cy) cy.fit();
     }
 
-    // Load full graph on init
+                              
     loadGraph();
     </script>
 </body>
