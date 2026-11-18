@@ -31,7 +31,7 @@ The platform produces:
 │   ├── step2_chain_novelty.py         # Chain Novelty scoring using KG paths and PubMed co-occurrence
 │   ├── step2_scoresp_energy.py        # Optional ScoreSP energy scoring module
 │   ├── step3_quadrant.py              # Dual-axis quadrant assignment
-│   ├── step4_causal_chain.py          # Legacy optional module; see compatibility note below
+│   ├── step4_causal_chain.py         
 │   ├── validation_planner.py          # Evidence-driven validation planning (new)
 │   ├── protocol_refiner.py            # Multi-role protocol review and synthesis (new)
 │   ├── protocols_io_tool.py           # Read-only protocols.io retrieval (new)
@@ -167,7 +167,7 @@ Validate ZIP contents and `M4_summary.log` as well as HTTP status. The abundance
 
 ## Packaged results
 
-The package includes the MMSage example input, generated Steps 1–3 outputs, knowledge graphs, and one archived catalogue copy with the same 146 candidates and Step 1–3 core fields. The archived Step 2 copy additionally contains the separately recorded Step 2b evidence. Existing scientific values are retained as the packaged results.
+The package includes the MMSage example input, generated Steps 1–3 outputs, knowledge graphs, and one catalogue copy with the same 146 candidates and Step 1–3 core fields.
 
 | File | Current content |
 |---|---:|
@@ -274,10 +274,6 @@ python backend/step3_quadrant.py \
 
 ```
 
-### Legacy optional Step 4 source
-
-`backend/step4_causal_chain.py` is retained for historical reference, but it expects the legacy nested `scoresp_result.candidate` schema and is not part of the current Step 1–3 pipeline. It must not be run directly against the shipped `outputs/step3_quadrant.json` without a schema adapter. No Step 4 output is included in the package or archived by `export_catalog.py`.
-
 ## Build knowledge graphs separately
 
 `backend/build_kg.py` supports two modes.
@@ -350,7 +346,7 @@ Common backend endpoints:
 | `outputs/step2_chain_novelty.json` | Step 2 | `chain_count`, `chain_novelty`, `has_path`, `pairwise_counts` |
 | `outputs/step2b_agent_evidence.json` | Step 2b | `hop_counts`, `bottleneck`, `db_bonus`, `sources`, `recommendation` |
 | `outputs/step3_quadrant.json` | Step 3 | `quadrant`, `quadrant_label`, `is_dark_matter`, `evidence_foundation` |
-| `data/results_catalog/runs/*/candidates.json` | Archived Step 1–3 catalogue snapshot | Candidate, Chain Novelty, quadrant, and evidence fields |
+| `data/results_catalog/runs/*/candidates.json` | Step 1–3 catalogue snapshot | Candidate, Chain Novelty, quadrant, and evidence fields |
 
 Current candidate and stage outputs use `mmsage_norm`. Candidate-facing views display Rank, and downstream summaries use Prioritization.
 
@@ -390,3 +386,5 @@ curl http://localhost:8000/api/step3/quadrant
 - `backend/db_checkers/sapbert_index/` is not shipped (769 MB). Entity normalisation and SapBERT retrieval are unavailable until it is rebuilt with `python backend/db_checkers/build_sapbert_index.py`, which itself needs the reference tables below.
 - `data/databases/` is present but empty. Populating it requires the five reference sources used by `backend/db_checkers/`: CTD chemical-disease associations, BacDive edges, BindeD annotations, ChEBI relationships, and Disbiome edges. Each checker module documents the columns it expects.
 - No API credentials are included. `llm_reasoning.py` reads `OPENAI_API_KEY`, `OPENAI_API_BASE` and `OPENAI_MODEL` from the environment; `build_kg.py` reads a rotating DeepSeek key CSV supplied via `--keys-csv`.
+
+
