@@ -30,7 +30,7 @@ def sha256sum(path: Path) -> str:
 
 
 def trace_path(path: Path) -> str:
-    """Return a package-relative path suitable for archived provenance records."""
+    pass
     return path.resolve().relative_to(PAPER_ROOT.resolve()).as_posix()
 
 
@@ -76,7 +76,7 @@ def save_plot(fig, path: Path):
 
 
 def analyze_metric_vs_best(df: pd.DataFrame, metric_col: str, best_method: str, higher_is_better: bool = True) -> pd.DataFrame:
-    # Explicitly pair by X and then run paired Wilcoxon tests.
+    
     rows = []
 
     anchor_df = (
