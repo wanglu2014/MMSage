@@ -9,13 +9,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+if __package__:
+    from .step3_quadrant import QUADRANT_ORDER, sort_run_candidates
+else:
+    from step3_quadrant import QUADRANT_ORDER, sort_run_candidates
+
 BACKEND_DIR = Path(__file__).parent
 PROJECT_DIR = BACKEND_DIR.parent
 CATALOG_DIR = PROJECT_DIR / "data" / "results_catalog"
 RUNS_DIR = CATALOG_DIR / "runs"
 INDEX_PATH = CATALOG_DIR / "index.json"
-
-QUADRANT_ORDER = {"I": 0, "II": 1, "III": 2, "IV": 3}
 
 ARCHIVE_FILES = [
     "step1_candidates.json",
@@ -25,6 +28,7 @@ ARCHIVE_FILES = [
     "step4_final.json",
     "pipeline_status.json",
     "knowledge_graph.gml",
+    "literature_context.gml",
 ]
 
 
@@ -74,6 +78,7 @@ def _index_record(run_id: str, item: dict, meta: dict) -> dict:
         "quadrant_label": item.get("quadrant_label", ""),
         "composite_score": item.get("composite_score"),
         "mmsage_norm": item.get("mmsage_norm"),
+        **({"uploaded_rank": item["uploaded_rank"]} if "uploaded_rank" in item else {}),
         "chain_novelty": item.get("chain_novelty"),
         "chain_count": item.get("chain_count"),
         "is_dark_matter": item.get("is_dark_matter", False),
@@ -106,7 +111,8 @@ def rebuild_index() -> dict:
                     records.append(_index_record(run_dir.name, item, meta))
 
     records.sort(
-        key=lambda r: (r.get("computed_at") or "", r.get("composite_score") or 0),
+        key=lambda r: (r.get("computed_at") or "",
+                       -r["uploaded_rank"] if "uploaded_rank" in r else r.get("composite_score") or 0),
         reverse=True,
     )
 
@@ -230,12 +236,11 @@ def search_records(
                 continue
         filtered.append(r)
 
-    filtered.sort(
-        key=lambda r: (
-            QUADRANT_ORDER.get(r.get("quadrant"), 9),
-            -(r.get("mmsage_norm") or 0),
-        )
-    )
+    if run_id:
+        sort_run_candidates(filtered)
+    else:
+        filtered.sort(key=lambda r: (QUADRANT_ORDER.get(r.get("quadrant"), 9),
+                                     -(r.get("mmsage_norm") or 0)))
 
     total = len(filtered)
     page = filtered[offset : offset + limit]

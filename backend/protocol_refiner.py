@@ -15,7 +15,7 @@ try:
 except ImportError:  
     requests = None
 
-from llm_reasoning import OPENAI_API_BASE, OPENAI_API_KEY, OPENAI_MODEL
+from llm_reasoning import OPENAI_API_BASE, OPENAI_API_KEY, OPENAI_MODEL, post_chat_completion
 
 BACKEND_DIR = Path(__file__).parent
 PROJECT_DIR = BACKEND_DIR.parent
@@ -257,6 +257,17 @@ def _chat_json(
     temperature: float = 0.3,
     request_timeout: float = 240,
 ) -> dict:
+    result, _ = _chat_json_with_model(system_prompt, user_prompt, max_tokens, temperature, request_timeout)
+    return result
+
+
+def _chat_json_with_model(
+    system_prompt: str,
+    user_prompt: str,
+    max_tokens: int = 2000,
+    temperature: float = 0.3,
+    request_timeout: float = 240,
+) -> tuple[dict, str]:
     if not OPENAI_API_KEY or requests is None:
         raise RuntimeError("LLM is not configured for protocol refinement.")
 
@@ -276,7 +287,7 @@ def _chat_json(
         response = None
         for network_attempt in range(1, 3):
             try:
-                response = requests.post(
+                response, used_model = post_chat_completion(
                     f"{OPENAI_API_BASE}/chat/completions",
                     headers={
                         "Content-Type": "application/json",
@@ -318,7 +329,7 @@ def _chat_json(
             parsed = json.loads(content)
             if not isinstance(parsed, dict):
                 raise ValueError("LLM JSON response is not an object.")
-            return parsed
+            return parsed, used_model
         except (json.JSONDecodeError, ValueError) as exc:
             last_error = exc
             if attempt == len(token_budgets):
@@ -378,14 +389,14 @@ Literature context:
 
 Generate the initial protocol draft."""
 
-    result = _chat_json(system_prompt, user_prompt, max_tokens=2200, temperature=0.5)
+    result, used_model = _chat_json_with_model(system_prompt, user_prompt, max_tokens=2200, temperature=0.5)
     protocol = result.get("protocol_full_text", "").strip()
     if not protocol:
         raise RuntimeError("LLM returned an empty protocol draft.")
     return {
         "protocol": protocol,
         "generated_by": "ai",
-        "model": OPENAI_MODEL,
+        "model": used_model,
         "title": result.get("title", f"{bacteria} x {metabolite} protocol"),
         "executive_summary": result.get("executive_summary", ""),
         "global_hypothesis": result.get("global_hypothesis", ""),

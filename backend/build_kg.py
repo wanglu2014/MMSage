@@ -9,11 +9,13 @@ import time
 import re
 import random
 import threading
+from collections import Counter
 from pathlib import Path
 from typing import List, Dict, Any, Set, Tuple, Optional
 
 import networkx as nx
-from openai import OpenAI
+from llm_reasoning import available_model_alias
+from runtime_state import save_json
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
@@ -80,23 +82,27 @@ class DeepSeekPool:
     pass
 
     def __init__(self, keys_csv: Path = DEFAULT_KEYS_CSV, max_keys: int = 10):
-        all_keys = _load_keys_from_csv(keys_csv)
+        all_keys = _load_keys_from_csv(keys_csv) if keys_csv.is_file() else []
+        base_url, self.model = DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
         if not all_keys:
-            raise RuntimeError(f"No API keys found in {keys_csv}")
+            from llm_reasoning import OPENAI_API_BASE, OPENAI_API_KEY, OPENAI_MODEL
+            if not OPENAI_API_KEY:
+                raise RuntimeError("No model credentials configured for graph extraction.")
+            all_keys = [OPENAI_API_KEY]
+            base_url, self.model = OPENAI_API_BASE, OPENAI_MODEL
+        from openai import OpenAI
         use_keys = all_keys[:max_keys]
-        print(f"[DeepSeek] Loaded {len(use_keys)} keys from {keys_csv}")
 
         self._clients = []
-        for i, key in enumerate(use_keys):
+        for key in use_keys:
             client = OpenAI(
                 api_key=key,
-                base_url=DEEPSEEK_BASE_URL,
+                base_url=base_url,
                 timeout=120,
                 max_retries=1,
             )
             self._clients.append({
                 "client": client,
-                "key_tail": key[-8:],
                 "errors": 0,
                 "last_used": 0.0,
             })
@@ -108,8 +114,7 @@ class DeepSeekPool:
         for attempt in range(max_retries):
             info = self._pick_client()
             try:
-                resp = info["client"].chat.completions.create(
-                    model=DEEPSEEK_MODEL,
+                options = dict(
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt},
@@ -118,6 +123,14 @@ class DeepSeekPool:
                     max_tokens=2000,
                     timeout=90,
                 )
+                generate = info["client"].chat.completions.create
+                try:
+                    resp = generate(model=self.model, **options)
+                except Exception as exc:
+                    alias = available_model_alias(self.model, getattr(exc, "response", None))
+                    if not alias:
+                        raise
+                    resp = generate(model=alias, **options)
                 text = resp.choices[0].message.content or ""
                 
                 text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
@@ -128,8 +141,7 @@ class DeepSeekPool:
                 with self._lock:
                     info["errors"] += 1
                 delay = RETRY_DELAY * (2 ** attempt) * random.uniform(0.8, 1.2)
-                print(f"  [WARN] DeepSeek call failed (key ...{info['key_tail']}, "
-                      f"attempt {attempt+1}): {e}")
+                print(f"  [WARN] Graph extraction attempt {attempt+1} failed: {type(e).__name__}")
                 if attempt < max_retries - 1:
                     time.sleep(delay)
         return None
@@ -179,9 +191,7 @@ def _load_synonym_cache():
 
 
 def _save_synonym_cache():
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    with open(SYNONYM_CACHE_FILE, "w", encoding="utf-8") as f:
-        json.dump(_synonym_cache, f, indent=2, ensure_ascii=False)
+    save_json(SYNONYM_CACHE_FILE, _synonym_cache)
 
 
 def get_sapbert_synonyms(
@@ -295,7 +305,7 @@ def search_pubmed(query: str, max_results: int = 40) -> List[str]:
     return pmids[:actual_max]
 
 
-def fetch_abstracts(pmids: List[str]) -> List[Dict[str, str]]:
+def fetch_abstracts(pmids: List[str], *, include_title_only: bool = False) -> List[Dict[str, str]]:
     if not pmids or not HAS_ENTREZ:
         return []
     Entrez.email = ENTREZ_EMAIL
@@ -310,7 +320,7 @@ def fetch_abstracts(pmids: List[str]) -> List[Dict[str, str]]:
                     rettype="medline", retmode="text")
                 for rec in Medline.parse(handle):
                     ab = rec.get("AB", "")
-                    if ab:
+                    if ab or (include_title_only and rec.get("TI")):
                         articles.append({
                             "pmid": rec.get("PMID", ""),
                             "title": rec.get("TI", ""),
@@ -341,6 +351,44 @@ def _term_in_text(term: str, text_lower: str) -> bool:
 
 def _make_node_id(name: str) -> str:
     return re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')
+
+
+def _publication_mentions(articles, bacteria, metabolites, disease):
+    """Record literal mentions in PubMed titles/abstracts independently of model extraction."""
+    entities = [(name, "microbe") for name in sorted(bacteria)]
+    entities.extend((name, "metabolite") for name in sorted(metabolites))
+    entities.append((disease, "disease"))
+    terms = []
+    for name, kind in entities:
+        label = " ".join(name.replace("_", " ").split())
+        if not label:
+            continue
+        # GML slugs discard punctuation; preserve distinct uploaded compounds sharing a slug.
+        node_id = _make_node_id(label)
+        terms.append((node_id, label, kind,
+                      re.compile(r"(?<!\w)" + re.escape(label) + r"(?!\w)", re.IGNORECASE)))
+    slug_counts = Counter(node_id for node_id, _, _, _ in terms)
+
+    graph = nx.DiGraph()
+    for article in articles:
+        pmid = str(article.get("pmid", ""))
+        if not re.fullmatch(r"[1-9][0-9]*", pmid):
+            continue
+        title = article.get("title") or ""
+        fields = (" ".join(title.split()), " ".join((article.get("abstract") or "").split()))
+        matched = [(nid, label, kind) for nid, label, kind, pattern in terms
+                   if any(pattern.search(field) for field in fields)]
+        if not any(kind != "disease" for _, _, kind in matched):
+            continue
+        paper = f"pubmed_{pmid}"
+        graph.add_node(paper, type="publication", display_label=f"PMID {pmid}", description=title)
+        for nid, label, kind in matched:
+            if not nid or slug_counts[nid] > 1 or nid.startswith("pubmed_"):
+                nid = f"{kind}:{label}"
+            graph.add_node(nid, type=kind, display_label=label)
+            graph.add_edge(nid, paper, relation="mentioned_in", pmid=pmid,
+                           description=title or f"{label} appears in the indexed abstract.")
+    return graph
 
 def recognize_entities(
     text: str,
@@ -556,9 +604,12 @@ def build_kg_from_abstracts(
         pmid = article["pmid"]
         cache_file = CACHE_DIR / "extractions" / f"{pmid}.json"
         if cache_file.exists():
-            with open(cache_file, "r", encoding="utf-8") as f:
-                result = json.load(f)
-            if result.get("nodes") or result.get("edges"):
+            try:
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    result = json.load(f)
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                result = None
+            if isinstance(result, dict) and (result.get("nodes") or result.get("edges")):
                 _add_to_graph(G, result, article)
                 llm_ok += 1
                 continue
@@ -579,9 +630,7 @@ def build_kg_from_abstracts(
             continue
 
         llm_ok += 1
-        cache_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(cache_file, "w", encoding="utf-8") as f:
-            json.dump(result, f, indent=2, ensure_ascii=False)
+        save_json(cache_file, result)
         _add_to_graph(G, result, article)
 
         if (i + 1) % 10 == 0:
@@ -821,8 +870,6 @@ def run_build_kg(
     print("  DeepSeek API + SapBERT NER (rep1212 aligned)")
     print("=" * 60)
 
-    pool = DeepSeekPool(Path(keys_csv))
-
     with open(candidates_path, "r", encoding="utf-8") as f:
         candidates = json.load(f)
     print(f"Loaded {len(candidates)} candidates")
@@ -846,7 +893,7 @@ def run_build_kg(
         pmids = search_pubmed(q["query"], max_results=max_articles_per_query)
         new = [p for p in pmids if p not in seen_pmids]
         if new:
-            all_articles.extend(fetch_abstracts(new))
+            all_articles.extend(fetch_abstracts(new, include_title_only=True))
             seen_pmids.update(new)
         if (i + 1) % 10 == 0:
             print(f"  {i+1}/{len(queries)} queries, "
@@ -854,9 +901,14 @@ def run_build_kg(
 
     print(f"  Total: {len(all_articles)} articles")
 
+    # Save article provenance before model setup so it survives an extraction failure.
+    mentions = _publication_mentions(all_articles, bacteria_set, metabolite_set, disease)
+    _save_gml(mentions, str(Path(output_gml_path).with_name("literature_context.gml")))
+
     print("\nPhase 3: DeepSeek relation extraction...")
+    pool = DeepSeekPool(Path(keys_csv))
     G = build_kg_from_abstracts(
-        all_articles, bacteria_names, metabolite_names,
+        [article for article in all_articles if article.get("abstract")], bacteria_names, metabolite_names,
         disease_terms, disease, pool)
 
     

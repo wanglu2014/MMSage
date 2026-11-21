@@ -11,6 +11,17 @@ QUADRANT_LABELS = {
     'IV': 'Low Priority',
 }
 
+QUADRANT_ORDER = {name: index for index, name in enumerate(QUADRANT_LABELS)}
+
+
+def sort_run_candidates(rows):
+    """Preserve uploaded ranks and ties, or use the original quadrant order."""
+    if all(row.get("uploaded_rank") is not None for row in rows):
+        rows.sort(key=lambda row: row["uploaded_rank"])
+    else:
+        rows.sort(key=lambda row: (QUADRANT_ORDER.get(row.get("quadrant"), 9),
+                                   -(row.get("mmsage_norm") or 0)))
+
 
 def assign_quadrant(mmsage_norm: float, chain_novelty: float,
                     mmsage_threshold: float, novelty_threshold: float) -> dict:
@@ -113,6 +124,7 @@ def run_step3(
             'metabolite': item.get('metabolite', cand.get('metabolite', '')),
             'disease': disease,
             'mmsage_norm': mmsage_norm,
+            **({'uploaded_rank': cand['uploaded_rank']} if 'uploaded_rank' in cand else {}),
             'chain_count': chain_count,
             'chain_novelty': chain_novelty,
             'evidence_foundation': evidence_foundation,
@@ -141,20 +153,13 @@ def run_step3(
         print(f"  {q} ({label}): {count}{marker}")
 
     
-    _quadrant_priority = {'I': 0, 'II': 1, 'III': 2, 'IV': 3}
     for r in results:
         bm = r.get('pair_bm_exp', 0)
         md = r.get('pair_md_exp', 0)
         mms = r.get('mmsage_norm', 0)
         r['composite_score'] = round(
             mms * (1 + math.log2(1 + bm)) * (1 + math.log2(1 + md)), 4)
-    results.sort(key=lambda r: (
-        -int(r.get('quadrant') == 'I'
-             and (r.get('pair_bm_exp') or 0) > 0
-             and (r.get('pair_md_exp') or 0) > 0),
-        _quadrant_priority.get(r.get('quadrant'), 9),
-        -(r.get('mmsage_norm') or 0),
-    ))
+    sort_run_candidates(results)
 
     
     dark_matter = [r for r in results if r['is_dark_matter']]

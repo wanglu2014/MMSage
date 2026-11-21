@@ -5,9 +5,10 @@ import asyncio
 import threading
 import subprocess
 import re
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from urllib.parse import urlencode
 from uuid import uuid4
 
@@ -33,6 +34,7 @@ FRONTEND_DIR = PROJECT_DIR / "frontend"
 AUTO_GML = DATA_DIR / "knowledge_graph" / "auto_built_kg.gml"
 TEST_GML = DATA_DIR / "knowledge_graph" / "ibd_test_kg.gml"
 DEFAULT_GML = AUTO_GML if AUTO_GML.exists() else TEST_GML
+MAX_COORDINATE_UPLOAD_BYTES = 100 * 1024 * 1024
 DEFAULT_COORDINATES_DIR = str(PROJECT_DIR / "data" / "sample_coordinates")
 DEFAULT_COORDINATES_FILE = str(PROJECT_DIR / "data" / "sample_coordinates" / "pluscombno1V0317_min0_Akkermansia_muciniphila_seed_1_dim_10_neighbor_2_dist_0.4_metric_euclidean_rank_rootknow_cor0303_1_top_50_Pthre_0.1_pair.csv_clu_1_coordinates_tunek.csv")
 
@@ -49,6 +51,8 @@ from runtime_state import (
     save_json as save_runtime_json,
 )
 from correlation_job_runner import run_correlation_job
+from step3_quadrant import sort_run_candidates
+from upload_lease import create_lease, update_lease
 
 app = FastAPI(title="MMSage x Chain Novelty Dual-Axis System", version="2.0.0")
 
@@ -699,38 +703,53 @@ async def get_full_graph(run_id: str = Query(default="")):
 async def get_chain_subgraph(
     bacteria: str = Query(...),
     metabolite: str = Query(...),
-    disease: str = Query(default="IBD"),
+    disease: str = Query(default=""),
     max_neighbors: int = Query(default=6),
     focused: bool = Query(default=False),
     run_id: str = Query(default=""),
+    view: Literal["gml", "agent"] = Query(default="gml"),
 ):
-    pass
+    if view == "agent":
+        return candidate_agent_graph(bacteria, metabolite, disease, run_id,
+                                     max_neighbors=max_neighbors, focused=focused)
+    disease = disease or "IBD"
     gml_path = resolve_gml_path(run_id)
+    return _chain_from_gml(gml_path, bacteria, metabolite, disease, max_neighbors, focused)
+
+
+def _chain_from_gml(gml_path, bacteria, metabolite, disease, max_neighbors, focused,
+                    *, evidence_only=False, literature_context=False):
     if not gml_path.exists():
         return {"error": "GML not found"}
 
     G = nx.read_gml(str(gml_path))
+    if evidence_only:
+        G = G.edge_subgraph([(src, dst) for src, dst, edge in G.edges(data=True)
+                             if edge.get('pmid') and _parse_pmids(edge['pmid'])
+                             and edge.get('relation')])
 
     
-    def find_node(keyword):
+    def find_node(keyword, role):
         keyword_lower = keyword.lower().replace("_", " ")
         best, best_score = None, 0
         for nid, ndata in G.nodes(data=True):
-            label = ndata.get('label', nid).lower().replace("_", " ")
+            label = (ndata.get('display_label') or ndata.get('label', nid)).lower().replace("_", " ")
             nid_lower = nid.lower().replace("_", " ")
+            if literature_context and ndata.get("type") not in (None, role):
+                continue
             
-            if keyword_lower == label or keyword_lower == nid_lower:
+            if keyword_lower == label or (not ndata.get("display_label") and keyword_lower == nid_lower):
                 return nid
             
-            if keyword_lower in label or keyword_lower in nid_lower:
+            if not evidence_only and (keyword_lower in label or keyword_lower in nid_lower):
                 score = len(keyword_lower) / max(len(label), 1)
                 if score > best_score:
                     best, best_score = nid, score
         return best
 
-    core_bacteria = find_node(bacteria)
-    core_metabolite = find_node(metabolite)
-    core_disease = find_node(disease)
+    core_bacteria = find_node(bacteria, "microbe")
+    core_metabolite = find_node(metabolite, "metabolite")
+    core_disease = find_node(disease, "disease")
 
     core_ids = set()
     core_labels = {}
@@ -757,7 +776,10 @@ async def get_chain_subgraph(
 
     
     if not focused:
-        for core_nid in core_ids:
+        # A paper must mention this microbe or metabolite to contextualize this candidate.
+        # A shared disease can link to any papers already selected through those entities.
+        anchors = core_ids - {core_disease} if literature_context else core_ids
+        for core_nid in anchors:
             neighbors = set()
             neighbors.update(G.predecessors(core_nid))
             neighbors.update(G.successors(core_nid))
@@ -770,7 +792,7 @@ async def get_chain_subgraph(
                     continue
                 filtered_neighbors.append(n)
 
-            ranked = sorted(filtered_neighbors, key=lambda n: G.degree(n), reverse=True)
+            ranked = sorted(filtered_neighbors, key=lambda n: (-G.degree(n), str(n)))
             selected_nodes.update(ranked[:max_neighbors])
 
     subgraph = G.subgraph(selected_nodes)
@@ -790,7 +812,7 @@ async def get_chain_subgraph(
         cy_nodes.append({
             "data": {
                 "id": nid,
-                "label": ndata.get('label', nid),
+                "label": ndata.get('display_label') or ndata.get('label', nid),
                 "type": ndata.get('type', 'unknown'),
                 "is_core": is_core,
                 "core_role": core_labels.get(nid, ""),
@@ -833,6 +855,174 @@ HOP_TYPE_LABELS = {
     "metabolite_disease": "Metabolite–Disease",
     "microbe_disease": "Microbe–Disease",
 }
+
+# Each agent can also report database hits for just one entity. Only a
+# pair-specific database query supports drawing a link for that hop.
+AGENT_HOPS = {
+    "microbe_metabolite": ("bacteria", "metabolite", "binded", "BindedDB"),
+    "metabolite_disease": ("metabolite", "disease", "ctd", "CTD"),
+    "microbe_disease": ("bacteria", "disease", "disbiome", "Disbiome"),
+}
+
+
+def _supported_hops(agent):
+    """Yield pair-specific results, excluding database hits about a single entity."""
+    for hop in agent.get("hop_evidence") or []:
+        if not isinstance(hop, dict) or hop.get("hop_type") not in AGENT_HOPS:
+            continue
+        kind = hop["hop_type"]
+        source, target, database, db_label = AGENT_HOPS[kind]
+        hits = hop.get("db_hits") or {}
+        pair_databases = [db_label] if hits.get(database) is True else []
+        count = hop.get("pubmed_count") or 0
+        if count > 0 or pair_databases:
+            yield source, target, {
+                "hop_type": kind, "pubmed_count": count, "pair_databases": pair_databases,
+                "db_hits": hits, "sources": hop.get("sources") or [],
+                "query_used": hop.get("query_used") or "", "hop_evidence": hop,
+            }
+
+
+def _record_entity(name):
+    return " ".join(name.replace("_", " ").casefold().split())
+
+
+def _agent_neighbors(graph_dir, labels):
+    """Find other candidates assessed with the selected microbe or metabolite in this run."""
+    records = load_runtime_json(graph_dir / "step2b_agent_evidence.json")
+    if not isinstance(records, list):
+        steps = load_runtime_json(graph_dir / "step2_chain_novelty.json") or []
+        records = [step.get("agent_evidence") for step in steps]
+    neighbors = {}
+    for item in records:
+        if not isinstance(item, dict) or item.get("disease") != labels["disease"]:
+            continue
+        if not item.get("bacteria") or not item.get("metabolite"):
+            continue
+        different = [role for role in ("bacteria", "metabolite")
+                     if _record_entity(item[role]) != _record_entity(labels[role])]
+        if len(different) != 1:
+            continue
+        role = different[0]
+        key = (role, _record_entity(item[role]))
+        for src, dst, support in _supported_hops(item):
+            if role not in (src, dst):
+                continue
+            group = neighbors.setdefault(key, {"role": role, "name": item[role], "links": {}})
+            group["links"].setdefault((src, dst), support)
+    # Prefer neighbors connected to two core entities; retain archive order within each group.
+    return sorted(neighbors.values(), key=lambda group: -len(group["links"]))
+
+
+def candidate_agent_graph(bacteria: str, metabolite: str, disease: str, run_id: str,
+                          max_neighbors: int = 6, focused: bool = False) -> dict:
+    from export_catalog import get_record, run_dir_path
+
+    rid = resolve_requested_run_id(run_id)
+    if not rid or Path(rid).name != rid or rid in {".", ".."}:
+        raise HTTPException(404, "Unknown run ID.")
+    record = get_record(rid, bacteria, metabolite)
+    if not record:
+        raise HTTPException(404, "Candidate not found in the requested run.")
+    agent = record.get("agent_evidence") or {}
+    run_disease = record.get("disease") or agent.get("disease")
+    if not run_disease or (disease and disease != run_disease):
+        raise HTTPException(409, "The requested disease does not match the candidate archive.")
+    labels = {"bacteria": bacteria, "metabolite": metabolite, "disease": run_disease}
+    if any(agent.get(role) and agent[role] != label for role, label in labels.items()):
+        raise HTTPException(409, "Archived agent evidence does not match the candidate.")
+    core = {role: f"agent:{role}" for role in labels}
+    nodes = [{"data": {"id": core[role], "label": label, "core_role": role,
+                       "type": "microbe" if role == "bacteria" else role, "is_core": True}}
+             for role, label in labels.items()]
+    hops = {hop["hop_type"]: hop for hop in agent.get("hop_evidence") or []
+            if isinstance(hop, dict) and hop.get("hop_type") in AGENT_HOPS}
+    graph_dir = run_dir_path(rid)
+    graph_file = next((graph_dir / name for name in ("knowledge_graph.gml", "auto_built_kg.gml")
+                       if (graph_dir / name).is_file()), None)
+    # The shipped example predates archiving the GML. Its graph is bundled in data/.
+    if graph_file is None and rid == "run_20260602_164050_akkermansia_muciniph_ibd":
+        graph_file = AUTO_GML if AUTO_GML.is_file() else None
+    limit = max(0, min(max_neighbors, 12))
+    edges = []
+    pair_links = {}
+    node_ids = set(core.values())
+    gml_edges = set()
+    for path in (graph_file, graph_dir / "literature_context.gml"):
+        if path is None or not path.is_file():
+            continue
+        papers = path.name == "literature_context.gml"
+        neighborhood = _chain_from_gml(path, bacteria, metabolite, run_disease,
+                                       min(limit, 3) if papers else limit, focused,
+                                       evidence_only=True, literature_context=papers)
+        core_mapping = {nid: core[role] for role, nid in neighborhood.get("core", {}).items() if nid}
+        for item in neighborhood["nodes"]:
+            nid = item["data"]["id"]
+            if nid not in core_mapping and nid not in node_ids:
+                node_ids.add(nid)
+                nodes.append(item)
+        for item in neighborhood["edges"]:
+            edge = item["data"]
+            edge["source"] = core_mapping.get(edge["source"], edge["source"])
+            edge["target"] = core_mapping.get(edge["target"], edge["target"])
+            edge["evidence_source"] = "gml"
+            edge["directed"] = edge["relation"].lower() not in {
+                "associated_with", "co_occurs_with", "correlates_with",
+                "co_indexed_with", "mentioned_in", "co_mentioned_with",
+            }
+            key = (edge["source"], edge["target"], edge["relation"], edge["pmid"])
+            if key in gml_edges:
+                continue
+            gml_edges.add(key)
+            pair_links.setdefault(frozenset(key[:2]), []).append(edge)
+            edges.append(item)
+
+    def add_association(src, dst, support, is_chain):
+        key = frozenset((src, dst))
+        existing = pair_links.get(key)
+        if existing:
+            for link in existing:
+                link.update(support)
+        else:
+            link = {
+                "source": src, "target": dst, "is_chain": is_chain,
+                "relation": "associated_with", "directed": False, "evidence_source": "agent",
+                **support,
+            }
+            if is_chain:
+                link["id"] = f"hop:{support['hop_type']}"
+            pair_links[key] = [link]
+            edges.append({"data": link})
+
+    for src, dst, support in _supported_hops(agent):
+        add_association(core[src], core[dst], support, is_chain=True)
+
+    # Article nodes complement the biological neighbors and have a separate display limit.
+    biological_neighbors = sum(not item["data"]["is_core"] and item["data"]["type"] != "publication"
+                               for item in nodes)
+    if not focused and biological_neighbors < limit:
+        ids_by_label = {(item["data"]["type"], _record_entity(item["data"]["label"])): item["data"]["id"]
+                        for item in nodes}
+        for neighbor in _agent_neighbors(graph_dir, labels):
+            role, name = neighbor["role"], neighbor["name"]
+            ntype = "microbe" if role == "bacteria" else role
+            entity = (ntype, _record_entity(name))
+            nid = ids_by_label.get(entity)
+            if nid is None:
+                if biological_neighbors >= limit:
+                    continue
+                nid = f"neighbor:{role}:{entity[1]}"
+                nodes.append({"data": {"id": nid, "label": name, "type": ntype, "is_core": False}})
+                ids_by_label[entity] = nid
+                biological_neighbors += 1
+            endpoints = {**core, role: nid}
+            for (src, dst), support in neighbor["links"].items():
+                add_association(endpoints[src], endpoints[dst], support, is_chain=False)
+    return {
+        "graph_source": "agent", "run_id": rid, "nodes": nodes, "edges": edges, "core": core,
+        "evidence_status": "available" if hops else "unavailable",
+        "hop_evidence": [hops[k] for k in AGENT_HOPS if k in hops],
+    }
 
 
 def _parse_pmids(pmid_field) -> list:
@@ -897,13 +1087,25 @@ async def get_node_evidence(
     node_id: str = Query(...),
     bacteria: str = Query(default=""),
     metabolite: str = Query(default=""),
-    disease: str = Query(default="IBD"),
+    disease: str = Query(default=""),
     run_id: str = Query(default=""),
     node_type: str = Query(default=""),
     core_role: str = Query(default=""),
     include_abstracts: bool = Query(default=True),
 ):
-    pass
+    if node_id.startswith("agent:"):
+        graph = candidate_agent_graph(bacteria, metabolite, disease, run_id)
+        node = next((n["data"] for n in graph["nodes"] if n["data"]["id"] == node_id), None)
+        if node is None:
+            raise HTTPException(404, "Unknown candidate node.")
+        incident = [kind for kind, (src, tgt, _, _) in AGENT_HOPS.items()
+                    if node["core_role"] in (src, tgt)]
+        return {
+            "node": node, "graph_source": "agent", "run_id": graph["run_id"],
+            "hop_evidence": [hop for hop in graph["hop_evidence"] if hop["hop_type"] in incident],
+            "hop_types_considered": incident, "edge_evidence": [], "articles": [], "pmid_count": 0,
+        }
+    disease = disease or "IBD"
     gml_path = resolve_gml_path(run_id)
     if not gml_path.exists():
         return {"error": "GML not found"}
@@ -1004,16 +1206,18 @@ async def get_dual_axis_candidates(run_id: str = Query(default="")):
     import math
 
     resolved_run_id = resolve_requested_run_id(run_id)
-    quadrants = read_json_for_run("step3_quadrant.json", resolved_run_id)
-    if not quadrants:
-        return {
-            "candidates": [],
-            "thresholds": {"mmsage": 0.5, "evidence": 0},
-            "run_id": resolved_run_id,
-            "default_dashboard_run_id": ensure_default_dashboard_run_id(),
-            "is_default_dashboard_run": resolved_run_id == ensure_default_dashboard_run_id(),
-        }
+    if run_id:
+        from export_catalog import run_dir_path
 
+        if run_id != Path(run_id).name or run_id in {".", ".."}:
+            raise HTTPException(status_code=404, detail="Unknown run ID.")
+        quadrants = load_runtime_json(run_dir_path(run_id) / "step3_quadrant.json")
+        if quadrants is None:
+            raise HTTPException(status_code=404, detail="Candidate results for this run are unavailable.")
+        if not isinstance(quadrants, list):
+            raise HTTPException(status_code=500, detail="Invalid candidate results for this run.")
+    else:
+        quadrants = read_json_for_run("step3_quadrant.json", resolved_run_id)
     candidates = []
     for q in quadrants:
         bm = q.get("pair_bm_exp", 0)
@@ -1026,6 +1230,7 @@ async def get_dual_axis_candidates(run_id: str = Query(default="")):
             "bacteria": q.get("bacteria", ""),
             "metabolite": q.get("metabolite", ""),
             "mmsage_norm": mms,
+            **({"uploaded_rank": q["uploaded_rank"]} if "uploaded_rank" in q else {}),
             "chain_count": q.get("chain_count", 0),
             "chain_novelty": q.get("chain_novelty", 1.0),
             "novelty_score": q.get("chain_novelty", 1.0),
@@ -1040,14 +1245,7 @@ async def get_dual_axis_candidates(run_id: str = Query(default="")):
         })
 
     
-    _quadrant_priority = {"I": 0, "II": 1, "III": 2, "IV": 3}
-    candidates.sort(
-        key=lambda c: (
-            _quadrant_priority.get(c.get("quadrant"), 9),
-            not (c.get("quadrant") == "I" and c["pair_bm_exp"] > 0 and c["pair_md_exp"] > 0),
-            -c["mmsage_norm"],
-        )
-    )
+    sort_run_candidates(candidates)
 
     
     import statistics
@@ -1348,28 +1546,50 @@ def _run_pipeline_bg(csv_path: str, disease: str, output_dir: str):
         _pipeline_progress = {"status": "error", "step": "", "disease": disease, "error": str(e)}
 
 
+def _watch_upload_worker(job_id: str, process: subprocess.Popen) -> None:
+    exit_code = process.wait()
+    status = load_job_status(job_id)
+    if status.get("status") in ("running", "queued"):
+        status.update(status="error", error=f"The analysis worker terminated before completing (exit code {exit_code}).")
+        save_runtime_json(job_status_path(job_id), status)
+
+
 @app.post("/api/upload-coordinates")
 async def upload_coordinates(
     file: UploadFile = File(...),
     disease: str = Query(default="IBD"),
+    max_queries: int = Query(default=15, ge=1),
+    max_articles_per_query: int = Query(default=20, ge=1),
+    client_managed: bool = Query(default=False),
 ):
-    pass
     global _last_job_id
-
-    import re
 
     safe_name = re.sub(r"[^\w\-_. ]", "_", Path(file.filename).name)
     if not safe_name:
         return JSONResponse(status_code=400, content={"error": "Invalid filename"})
+
+    # Starlette records the actual multipart file size while spooling the upload.
+    size = file.size
+    if size is None:
+        size = file.file.seek(0, 2)
+        await file.seek(0)
+    if size > MAX_COORDINATE_UPLOAD_BYTES:
+        return JSONResponse(status_code=413, content={"error": "File too large. The CSV limit is 100 MiB."})
+
+    from step1_mmsage_signal import validate_coordinate_format
+
+    try:
+        validate_coordinate_format(file.file)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
 
     job_id = f"job_{uuid4().hex[:12]}"
     inputs_dir = job_inputs_dir(job_id)
     inputs_dir.mkdir(parents=True, exist_ok=True)
     dest = inputs_dir / safe_name
 
-    content = await file.read()
     with open(dest, "wb") as f:
-        f.write(content)
+        await asyncio.to_thread(shutil.copyfileobj, file.file, f, 1024 * 1024)
 
     save_runtime_json(
         job_status_path(job_id),
@@ -1384,21 +1604,23 @@ async def upload_coordinates(
         },
     )
 
-    subprocess.Popen(
-        [
-            sys.executable,
-            str(BACKEND_DIR / "job_runner.py"),
-            "--job-id",
-            job_id,
-            "--csv-path",
-            str(dest),
-            "--disease",
-            disease,
-        ],
-        cwd=str(PROJECT_DIR),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    argv = [
+        sys.executable, str(BACKEND_DIR / "job_runner.py"),
+        "--job-id", job_id, "--csv-path", str(dest), "--disease", disease,
+        "--max-queries", str(max_queries),
+        "--max-articles-per-query", str(max_articles_per_query),
+    ]
+    try:
+        lease_token = create_lease(job_id) if client_managed else None
+        process = subprocess.Popen(
+            argv, cwd=str(PROJECT_DIR), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+    except OSError as exc:
+        status = load_job_status(job_id)
+        status.update(status="error", step="launch", error="The analysis worker could not start.")
+        save_runtime_json(job_status_path(job_id), status)
+        raise HTTPException(status_code=503, detail=status["error"]) from exc
+    threading.Thread(target=_watch_upload_worker, args=(job_id, process), daemon=True).start()
     _last_job_id = job_id
 
     return {
@@ -1407,7 +1629,30 @@ async def upload_coordinates(
         "filename": safe_name,
         "disease": disease,
         "message": "Pipeline started in isolated background job. Poll /api/jobs/{job_id}/status.",
+        **({"lease_token": lease_token} if client_managed else {}),
     }
+
+
+class UploadLeaseRequest(BaseModel):
+    token: str = Field(max_length=256)
+
+
+def control_upload(job_id: str, request: UploadLeaseRequest, *, pause: bool):
+    if not re.fullmatch(r"job_[0-9a-f]{12}", job_id) or not job_status_path(job_id).is_file():
+        raise HTTPException(status_code=404, detail="Upload job not found.")
+    if not update_lease(job_id, request.token, pause=pause):
+        raise HTTPException(status_code=403, detail="Invalid upload token.")
+    return {"job_id": job_id, "status": load_job_status(job_id)["status"]}
+
+
+@app.post("/api/jobs/{job_id}/heartbeat")
+def upload_heartbeat(job_id: str, request: UploadLeaseRequest):
+    return control_upload(job_id, request, pause=False)
+
+
+@app.post("/api/jobs/{job_id}/pause")
+def pause_upload(job_id: str, request: UploadLeaseRequest):
+    return control_upload(job_id, request, pause=True)
 
 
 @app.get("/api/jobs/{job_id}/status")

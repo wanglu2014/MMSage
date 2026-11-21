@@ -9,7 +9,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 socket.setdefaulttimeout(30.0)
 
@@ -55,6 +55,7 @@ def run_pipeline(
     coordinates_file: Optional[str] = None,
     max_queries: int = 15,
     max_articles_per_query: int = 20,
+    before_archive: Optional[Callable[[], bool]] = None,
 ) -> dict:
     backend_dir = Path(__file__).parent
     project_dir = backend_dir.parent
@@ -210,6 +211,10 @@ def run_pipeline(
             print(f"  {step_name}: {step_info['duration_s']}s")
         print(f"\nQuadrant distribution: {quadrant_counts}")
 
+        if before_archive is not None and not before_archive():
+            status["status"] = "paused"
+            return status
+
         try:
             from export_catalog import archive_run
 
@@ -222,6 +227,7 @@ def run_pipeline(
             )
             status["catalog_run_id"] = catalog_run_id
         except Exception as arch_e:
+            status["archive_error"] = f"Results catalog archive failed: {arch_e}"
             print(f"[WARN] Results catalog archive failed: {arch_e}")
 
     except Exception as exc:

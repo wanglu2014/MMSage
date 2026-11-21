@@ -18,6 +18,30 @@ _default_base = "https://api.openai.com/v1" if OPENAI_API_KEY else ""
 OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "").strip() or _default_base
 
 
+def available_model_alias(model, response):
+    """Some gateways expose GPT-5.4 only under its medium-effort route."""
+    if model != "gpt-5.4" or response is None or response.status_code != 503:
+        return None
+    try:
+        payload = response.json()
+    except ValueError:
+        return None
+    error = payload.get("error") if isinstance(payload, dict) else None
+    if isinstance(error, dict) and error.get("code") == "model_not_found":
+        return "gpt-5.4-medium"
+    return None
+
+
+def post_chat_completion(url, *, headers, json, timeout):
+    model = json["model"]
+    response = requests.post(url, headers=headers, json=json, timeout=timeout)
+    alias = available_model_alias(model, response)
+    if alias:
+        response = requests.post(url, headers=headers, json={**json, "model": alias}, timeout=timeout)
+        model = alias
+    return response, model
+
+
 @dataclass
 class ReasoningResult:
     pass
@@ -130,7 +154,7 @@ Please provide your analysis in the specified JSON format."""
             "response_format": {"type": "json_object"}
         }
         
-        response = requests.post(
+        response, used_model = post_chat_completion(
             f"{OPENAI_API_BASE}/chat/completions",
             headers=headers,
             json=payload,
@@ -153,7 +177,7 @@ Please provide your analysis in the specified JSON format."""
             confidence_assessment=parsed.get('confidence_assessment', 'Unknown'),
             limitations=parsed.get('limitations', []),
             generated_by='openai',
-            model=self.model,
+            model=used_model,
             raw_response=content
         )
     
