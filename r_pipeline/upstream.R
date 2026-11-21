@@ -1,5 +1,5 @@
-
-
+# Extracted and adapted from monocle3 1.4.27 (MIT; Cole Trapnell).
+# See LICENSE and README.md in this directory.
 `new_cell_data_set` <- function (expression_data, cell_metadata = NULL, gene_metadata = NULL, verbose = FALSE) 
 {
     assertthat::assert_that(methods::is(expression_data, "matrix") || is_sparse_matrix(expression_data) || is(expression_data, 
