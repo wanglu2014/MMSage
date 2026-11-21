@@ -1,29 +1,7 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-import csv  
+import csv
+from functools import lru_cache
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict
 
 try:
     from .sapbert_retriever import retrieve
@@ -31,111 +9,61 @@ except ImportError:
     from sapbert_retriever import retrieve
 
 
-
-
-
-
-
-
-
-
-
-
-
 BACDIVE_PATH = Path(__file__).parent.parent.parent / "data" / "databases" / "bacdive_edges.tsv"
 
-_bacdive_data: Optional[List[Dict]] = None  
+
+def _normalize(value):
+    return value.lower().replace('_', ' ').replace('-', ' ').strip()
 
 
-def _load_bacdive() -> List[Dict]:
+@lru_cache(maxsize=256)
+def _summary(path, mtime_ns, size, bacteria):
+    # BacDive evidence depends only on the microbe and recurs across metabolites.
+    query = _normalize(bacteria)
 
-    global _bacdive_data
-    if _bacdive_data is not None:
-        return _bacdive_data  
+    @lru_cache(maxsize=4096)
+    def matches(name):
+        target = _normalize(name)
+        return bool(query and target) and (query in target or target in query)
 
-    _bacdive_data = []
-    if not BACDIVE_PATH.exists():
-        return _bacdive_data  
-
-    with open(BACDIVE_PATH, 'r', encoding='utf-8') as f:
-        reader = csv.DictReader(f, delimiter='\t')  
-        for row in reader:
-            _bacdive_data.append({
-                'microbe': (row.get('source_name') or '').strip().lower(),       
-                'microbe_std': (row.get('standard_sourcename') or '').strip().lower(),  
-                'edge_type': (row.get('edge_type') or '').strip().lower(),       
-                'target': (row.get('target_name') or '').strip().lower(),        
-                'target_attr': (row.get('target_attribute') or '').strip().lower(),  
-            })
-    return _bacdive_data
-
-
-
-
-
-
-
-
-
-
-
-def _fuzzy_match(query: str, target: str) -> bool:
-
-    q = query.lower().replace('_', ' ').replace('-', ' ').strip()
-    t = target.lower().replace('_', ' ').replace('-', ' ').strip()
-    if not q or not t:
-        return False
-    return q in t or t in q  
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    count = 0
+    environments = set()
+    details = []
+    with path.open(encoding="utf-8", newline="") as source:
+        for row in csv.DictReader(source, delimiter="\t"):
+            microbe = (row.get("source_name") or "").strip().lower()
+            if not (matches(microbe) or matches(row.get("standard_sourcename") or "")):
+                continue
+            count += 1
+            if count <= 20:
+                target = (row.get("target_name") or "").strip().lower()
+                if target:
+                    environments.add(target)
+                if count <= 5:
+                    edge = (row.get("edge_type") or "").strip().lower()
+                    details.append(f"{microbe}--{edge}-->{target}")
+    return count, tuple(environments)[:10], tuple(details)
 
 
 def check_bacdive(bacteria: str, metabolite: str) -> Dict:
-
-    data = _load_bacdive()
-
-    
-    matches = []
-    for row in data:
-        if _fuzzy_match(bacteria, row['microbe']) or _fuzzy_match(bacteria, row['microbe_std']):
-            matches.append(row)
-
-    match_method = "exact"
-
-    
-    if not matches:
-        try:
-            microbe_hits = retrieve(bacteria, entity_type="microbe", top_k=3, threshold=0.7)
-            for hit_name, score in microbe_hits:
-                for row in data:
-                    if _fuzzy_match(hit_name, row['microbe']) or _fuzzy_match(hit_name, row['microbe_std']):
-                        matches.append(row)
-                if matches:
-                    match_method = f"sapbert({hit_name},{score:.3f})"
-                    break
-        except Exception:
-            pass
-
-    environments = list(set(m['target'] for m in matches[:20] if m['target']))
-
-    return {
-        "hit": len(matches) > 0,
-        "records": len(matches),
-        "match_method": match_method,
-        "environments": environments[:10],
-        "details": [f"{m['microbe']}--{m['edge_type']}-->{m['target']}" for m in matches[:5]],
-    }
+    count, environments, details = 0, (), ()
+    method = "exact"
+    try:
+        stamp = BACDIVE_PATH.stat()
+    except FileNotFoundError:
+        stamp = None
+    if stamp is not None:
+        version = (BACDIVE_PATH, stamp.st_mtime_ns, stamp.st_size)
+        count, environments, details = _summary(*version, bacteria)
+        if not count:
+            try:
+                candidates = retrieve(bacteria, entity_type="microbe", top_k=3, threshold=0.7)
+                for name, score in candidates:
+                    count, environments, details = _summary(*version, name)
+                    if count:
+                        method = f"sapbert({name},{score:.3f})"
+                        break
+            except Exception:
+                pass
+    return {"hit": bool(count), "records": count, "match_method": method,
+            "environments": list(environments), "details": list(details)}

@@ -1,27 +1,13 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+"""Look up ChEBI relationships using compact, dictionary-encoded edge columns."""
 
 import csv
+from array import array
+from functools import lru_cache
 from pathlib import Path
-from typing import Dict, List, Optional
+from threading import Lock
+from typing import Dict
+
+import numpy as np
 
 try:
     from .sapbert_retriever import retrieve
@@ -29,98 +15,74 @@ except ImportError:
     from sapbert_retriever import retrieve
 
 
-
-
-
 CHEBI_PATH = Path(__file__).parent.parent.parent / "data" / "databases" / "chebi_relationships_standardized.csv"
-
-_chebi_data: Optional[List[Dict]] = None  
-
-
-def _load_chebi() -> List[Dict]:
-
-    global _chebi_data
-    if _chebi_data is not None:
-        return _chebi_data
-
-    _chebi_data = []
-    if not CHEBI_PATH.exists():
-        return _chebi_data
-
-    with open(CHEBI_PATH, 'r', encoding='utf-8') as f:
-        reader = csv.DictReader(f)  
-        for row in reader:
-            _chebi_data.append({
-                'source': (row.get('source_name') or '').strip().lower(),     
-                'target': (row.get('target_name') or '').strip().lower(),     
-                'edge_type': (row.get('edge_type') or '').strip().lower(),    
-                'description': row.get('edge_description', ''),               
-            })
-    return _chebi_data
+_load_lock = Lock()
 
 
+def _normalize(name):
+    return name.lower().replace("_", " ").replace("-", " ").strip()
 
 
+@lru_cache(maxsize=1)
+def _read_data(path):
+    names, relations = {}, {}
+    source_ids, target_ids, relation_ids = array("I"), array("I"), array("I")
+    if path.exists():
+        with path.open("r", encoding="utf-8", newline="") as stream:
+            for row in csv.DictReader(stream):
+                source = (row.get("source_name") or "").strip().lower()
+                target = (row.get("target_name") or "").strip().lower()
+                relation = (row.get("edge_type") or "").strip().lower()
+                source_ids.append(names.setdefault(source, len(names)))
+                target_ids.append(names.setdefault(target, len(names)))
+                relation_ids.append(relations.setdefault(relation, len(relations)))
+    return (tuple(names), tuple(_normalize(name) for name in names), tuple(relations),
+            np.asarray(source_ids), np.asarray(target_ids), np.asarray(relation_ids))
 
 
-def _fuzzy_match(query: str, target: str) -> bool:
-
-    q = query.lower().replace('_', ' ').replace('-', ' ').strip()
-    t = target.lower().replace('_', ' ').replace('-', ' ').strip()
-    if not q or not t:
-        return False
-    return q in t or t in q
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+def _matches(data, query):
+    names, normalized, relations, sources, targets, edge_types = data
+    term = _normalize(query)
+    name_matches = np.fromiter(
+        (bool(term and name and (term in name or name in term)) for name in normalized),
+        dtype=bool, count=len(names),
+    )
+    count, first_rows = 0, []
+    if name_matches.any():
+        # A common name can match most of the database. Only the first 20 rows
+        # contribute to evidence details; keep the full count without storing every hit.
+        for start in range(0, len(sources), 65536):
+            block = slice(start, start + 65536)
+            mask = name_matches[sources[block]] | name_matches[targets[block]]
+            count += int(np.count_nonzero(mask))
+            if len(first_rows) < 20:
+                for offset in np.flatnonzero(mask)[:20 - len(first_rows)]:
+                    i = start + offset
+                    first_rows.append((names[sources[i]], relations[edge_types[i]], names[targets[i]]))
+    return count, first_rows
 
 
 def check_chebi(metabolite: str, disease: str = "") -> Dict:
-
-    data = _load_chebi()
-
-    
-    matches = []
-    for row in data:
-        if _fuzzy_match(metabolite, row['source']) or _fuzzy_match(metabolite, row['target']):
-            matches.append(row)
-
-    match_method = "exact"
-
-    
-    if not matches:
+    with _load_lock:
+        data = _read_data(CHEBI_PATH)
+    count, rows = _matches(data, metabolite)
+    method = "exact"
+    if not count and len(data[0]):
         try:
-            met_hits = retrieve(metabolite, entity_type="metabolite", top_k=3, threshold=0.7)
-            for hit_name, score in met_hits:
-                for row in data:
-                    if _fuzzy_match(hit_name, row['source']) or _fuzzy_match(hit_name, row['target']):
-                        matches.append(row)
-                if matches:
-                    match_method = f"sapbert({hit_name},{score:.3f})"
+            for name, score in retrieve(metabolite, entity_type="metabolite", top_k=3, threshold=0.7):
+                count, rows = _matches(data, name)
+                if count:
+                    method = f"sapbert({name},{score:.3f})"
                     break
         except Exception:
             pass
 
-    related = list(set(
-        m['target'] if _fuzzy_match(metabolite, m['source']) else m['source']
-        for m in matches[:20]
-    ))
-
-    return {
-        "hit": len(matches) > 0,
-        "records": len(matches),
-        "match_method": match_method,
-        "related_metabolites": related[:10],
-        "details": [f"{m['source']}--{m['edge_type']}-->{m['target']}" for m in matches[:5]],
-    }
+    term = _normalize(metabolite)
+    related = set()
+    for source, _, target in rows:
+        norm_source = _normalize(source)
+        matches_source = term and norm_source and (term in norm_source or norm_source in term)
+        related.add(target if matches_source else source)
+    return {"hit": bool(count), "records": count, "match_method": method,
+            "related_metabolites": list(related)[:10],
+            "details": [f"{source}--{edge}-->{target}" for source, edge, target in rows[:5]]}

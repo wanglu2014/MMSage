@@ -20,7 +20,7 @@
 import csv  
 from pathlib import Path
 from typing import Dict, List, Optional
-from functools import lru_cache
+from threading import Lock
 
 try:
     from .sapbert_retriever import retrieve, retrieve_batch  
@@ -41,23 +41,27 @@ except ImportError:
 
 DISBIOME_PATH = Path(__file__).parent.parent.parent / "data" / "databases" / "disbiome_edges.tsv"
 
-_disbiome_data: Optional[List[Dict]] = None  
+_disbiome_data: Optional[List[Dict]] = None
+_load_lock = Lock()
 
 
 def _load_disbiome() -> List[Dict]:
-
     global _disbiome_data
-    if _disbiome_data is not None:
-        return _disbiome_data  
+    with _load_lock:
+        if _disbiome_data is None:
+            _disbiome_data = _read_disbiome()
+        return _disbiome_data
 
-    _disbiome_data = []
+
+def _read_disbiome() -> List[Dict]:
+    records = []
     if not DISBIOME_PATH.exists():
-        return _disbiome_data  
+        return records
 
     with open(DISBIOME_PATH, 'r', encoding='utf-8') as f:
         reader = csv.DictReader(f, delimiter='\t')  
         for row in reader:
-            _disbiome_data.append({
+            records.append({
                 'microbe': (row.get('source_name') or '').strip().lower(),       
                 'microbe_std': (row.get('standard_sourcename') or '').strip().lower(),  
                 'edge_type': (row.get('edge_type') or '').strip().lower(),       
@@ -65,7 +69,7 @@ def _load_disbiome() -> List[Dict]:
                 'disease_std': (row.get('standard_targetname') or '').strip().lower(),  
                 'pmid': row.get('PMID', ''),  
             })
-    return _disbiome_data
+    return records
 
 
 
