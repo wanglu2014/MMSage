@@ -8,6 +8,7 @@
 # --- Web service (backend/api_server.py) ---
 fastapi>=0.104
 uvicorn>=0.24
+filelock>=3.12
 pydantic>=2.0
 python-multipart>=0.0.6      # required by api_server.py: `file: UploadFile = File(...)`
 
