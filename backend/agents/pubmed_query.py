@@ -22,6 +22,8 @@ try:
 except ImportError:
     _HAS_SAPBERT = False
 
+from runtime_state import save_json
+
 
 ENTREZ_EMAIL = os.getenv("ENTREZ_EMAIL", "").strip() or "entrez-not-configured@invalid"
 CACHE_DIR = Path(__file__).parent.parent.parent / "cache" / "pubmed"
@@ -49,8 +51,7 @@ def _load_agent_syn_cache():
 
 def _save_agent_syn_cache():
     try:
-        with open(_SAPBERT_SYN_CACHE_FILE, "w", encoding="utf-8") as f:
-            json.dump(_sapbert_syn_cache, f, indent=2, ensure_ascii=False)
+        save_json(_SAPBERT_SYN_CACHE_FILE, _sapbert_syn_cache)
     except Exception:
         pass
 
@@ -104,8 +105,7 @@ def _save_cache(key: str, count: int, query: str):
     pass
     cache_file = CACHE_DIR / f"{key}.json"
     try:
-        with open(cache_file, 'w') as f:
-            json.dump({'count': count, 'query': query, 'timestamp': time.time()}, f)
+        save_json(cache_file, {"count": count, "query": query, "timestamp": time.time()})
     except:
         pass
 
