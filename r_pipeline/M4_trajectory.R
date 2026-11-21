@@ -1,6 +1,6 @@
-
-
-
+#!/usr/bin/env Rscript
+# MMSage M4: extracted principal-graph trajectories over a parameter grid.
+# Each metabolite is a trajectory point and each study sample is a feature.
 
 suppressMessages({
   library(tidyr)
@@ -245,9 +245,9 @@ run_cag <- function(task) {
 
   metabolite_names <- sub(paste0("-", cag, "$"), "", rownames(mat))
   if (nrow(mat) < 4L) {
-    
-    
-    
+    # Leiden cannot construct a meaningful neighborhood graph for fewer than
+    # four points. Emit a deterministic two-dimensional fallback so arbitrary
+    # small uploads still produce a valid ranked artifact.
     score <- rowSums(abs(mat), na.rm=TRUE)
     ord <- order(score, decreasing=TRUE)
     fallback <- data.frame(metabolite=metabolite_names[ord], rowcolumn=rownames(mat)[ord],
@@ -340,8 +340,8 @@ run_cag <- function(task) {
     umap_grid <- unique(dim_grid[, c("neighbors", "min_dist", "metric"), drop=FALSE])
     for (u in seq_len(nrow(umap_grid))) {
       neighbors_value <- umap_grid$neighbors[u]
-      
-      
+      # UMAP/Leiden requires k < (number of trajectory points - 1).
+      # Clamp user configuration for small, otherwise valid input tables.
       max_neighbors <- max(1L, nrow(mat) - 2L)
       neighbors_value <- min(as.integer(neighbors_value), max_neighbors)
       min_dist_value <- umap_grid$min_dist[u]
@@ -430,8 +430,8 @@ run_cag <- function(task) {
             )
             coord_file <- coord_path(cag, tag, narank)
             write_coord_file(output, coord_file)
-            
-            
+            # Also emit a TreeMM-compatible coordinates table for downstream
+            # users who expect Row.names/CellID, Pseudotime and PC columns.
             pc <- tryCatch(reducedDims(graph_cds)$PCA, error=function(e) NULL)
             if (is.null(pc)) pc <- matrix(NA_real_, nrow=nrow(output), ncol=0)
             pc <- as.matrix(pc)[keep_index, , drop=FALSE]
@@ -544,9 +544,9 @@ cat("M4 summary:\n", paste(result_lines, collapse="\n"), "\n", sep="")
 has_failures <- length(result_lines) != length(tasks) ||
   anyNA(result_lines) ||
   any(grepl("fail=[1-9]|^FAIL|^SKIP", result_lines), na.rm=TRUE)
-
-
-
+# A selected taxon can contain sparse or degenerate CAGs. Preserve successful
+# coordinate files and let the API package the usable results when at least one
+# configuration completed successfully.
 coordinate_files <- list.files(COORD_DIR, pattern="^coords_.*[.]csv$", full.names=TRUE)
 if (has_failures && length(coordinate_files) > 0L) {
   cat("Continuing with", length(coordinate_files), "successful coordinate files.\n")
