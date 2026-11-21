@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -26,20 +26,20 @@
             <h2 class="text-lg font-semibold mb-1">Correlation ranking</h2>
             <p class="text-sm text-gray-500 mb-4">Upload two abundance matrices to generate an independent ranked CSV using all input microbes and metabolites.</p>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <label class="block text-sm font-medium text-gray-700">Microbes abundance matrix
+                <div class="block text-sm font-medium text-gray-700">Microbes abundance matrix
                     <span class="mt-2 flex items-center gap-3 w-full border rounded px-3 py-2">
-                        <label for="cor-microbes" class="cursor-pointer px-3 py-1 border rounded bg-gray-50 hover:bg-gray-100">Choose File</label>
-                        <span id="cor-microbes-name" class="text-gray-500">No file chosen</span>
-                        <input id="cor-microbes" type="file" accept=".csv,.tsv,.txt" class="hidden">
+                        <button type="button" onclick="document.getElementById('cor-microbes').click()" aria-label="Choose File for microbes abundance matrix" aria-describedby="cor-microbes-name" class="cursor-pointer px-3 py-1 border rounded bg-gray-50 hover:bg-gray-100">Choose File</button>
+                        <span id="cor-microbes-name" aria-live="polite" class="text-gray-500">No file chosen</span>
+                        <input id="cor-microbes" type="file" accept=".csv,.tsv,.txt" hidden>
                     </span>
-                </label>
-                <label class="block text-sm font-medium text-gray-700">Metabolites abundance matrix
+                </div>
+                <div class="block text-sm font-medium text-gray-700">Metabolites abundance matrix
                     <span class="mt-2 flex items-center gap-3 w-full border rounded px-3 py-2">
-                        <label for="cor-metabolites" class="cursor-pointer px-3 py-1 border rounded bg-gray-50 hover:bg-gray-100">Choose File</label>
-                        <span id="cor-metabolites-name" class="text-gray-500">No file chosen</span>
-                        <input id="cor-metabolites" type="file" accept=".csv,.tsv,.txt" class="hidden">
+                        <button type="button" onclick="document.getElementById('cor-metabolites').click()" aria-label="Choose File for metabolites abundance matrix" aria-describedby="cor-metabolites-name" class="cursor-pointer px-3 py-1 border rounded bg-gray-50 hover:bg-gray-100">Choose File</button>
+                        <span id="cor-metabolites-name" aria-live="polite" class="text-gray-500">No file chosen</span>
+                        <input id="cor-metabolites" type="file" accept=".csv,.tsv,.txt" hidden>
                     </span>
-                </label>
+                </div>
                 <label class="block text-sm font-medium text-gray-700">Target Microbe (Optional)
                     <input id="cor-microbe-filter" type="text" value="Cyanobacteria" placeholder="Enter a microbe name from the uploaded file" class="mt-2 block w-full text-sm border rounded px-3 py-2">
                 </label>
@@ -201,7 +201,7 @@ Waiting for pipeline run...
 
     function appendLog(msg) {
         const log = document.getElementById('log-output');
-        const time = new Date().toLocaleTimeString();
+        const time = new Date().toLocaleTimeString('en-US');
         log.textContent += `\n[${time}] ${msg}`;
         log.scrollTop = log.scrollHeight;
     }

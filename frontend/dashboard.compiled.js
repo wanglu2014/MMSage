@@ -6,6 +6,75 @@ const {
   useRef
 } = React;
 const API_BASE = window.location.origin;
+const COORDINATE_UPLOAD_LIMIT = 100 * 1024 * 1024;
+const COORDINATE_SIZE_ERROR = "File too large. The CSV limit is 100 MiB.";
+
+async function submitCoordinates(params, formData, parseApiError) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 120000);
+  const timeoutMessage = "Upload timed out. Try a smaller CSV or a faster connection.";
+  try {
+    const res = await fetch(`${API_BASE}/api/upload-coordinates?${params}`, {
+      method: "POST", body: formData, signal: controller.signal
+    });
+    if (res.status === 413) throw new Error(COORDINATE_SIZE_ERROR);
+    if (res.status === 408 || res.status === 504) throw new Error(timeoutMessage);
+    const data = await res.json().catch(() => {
+      throw new Error(`The upload service returned an unreadable response (HTTP ${res.status}). Please try again.`);
+    });
+    if (!res.ok || data.error || !data.job_id) {
+      throw new Error(data.error || parseApiError(data, "The server did not start an upload job."));
+    }
+    return data;
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error(timeoutMessage);
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function coordinateUploadSession(onLeave) {
+  let jobUrl = "";
+  let body;
+  let heartbeat;
+  let left = false;
+
+  function finish() {
+    clearInterval(heartbeat);
+    window.removeEventListener("pagehide", leave);
+  }
+
+  function pause() {
+    if (!jobUrl) return;
+    const url = jobUrl + "/pause";
+    if (!window.navigator.sendBeacon?.(url, body)) {
+      fetch(url, { method: "POST", body, keepalive: true }).catch(() => {});
+    }
+  }
+
+  function leave() {
+    left = true;
+    finish();
+    pause();
+    onLeave();
+  }
+
+  window.addEventListener("pagehide", leave);
+  return {
+    get left() { return left; },
+    attach(jobId, token) {
+      jobUrl = API_BASE + "/api/jobs/" + encodeURIComponent(jobId);
+      body = new Blob([JSON.stringify({ token })], { type: "application/json" });
+      if (left) {
+        pause();
+        return;
+      }
+      heartbeat = setInterval(() => fetch(jobUrl + "/heartbeat", { method: "POST", body }).catch(() => {}), 15000);
+    },
+    finish
+  };
+}
 const MM_TO_PX_150 = 150 / 25.4;
 
                                                                       
@@ -149,9 +218,6 @@ const QUADRANT_HEADERS = {
 };
 function sortCandidatesGrouped(candidates) {
   return [...candidates].sort((a, b) => {
-    const preferredA = a.quadrant === "I" && (a.pair_bm_exp ?? 0) > 0 && (a.pair_md_exp ?? 0) > 0;
-    const preferredB = b.quadrant === "I" && (b.pair_bm_exp ?? 0) > 0 && (b.pair_md_exp ?? 0) > 0;
-    if (preferredA !== preferredB) return Number(preferredB) - Number(preferredA);
     const pa = QUADRANT_PRIORITY[a.quadrant] ?? 9;
     const pb = QUADRANT_PRIORITY[b.quadrant] ?? 9;
     if (pa !== pb) return pa - pb;
@@ -159,6 +225,9 @@ function sortCandidatesGrouped(candidates) {
   });
 }
 function buildCandidateGroups(candidates) {
+  if (candidates.length && candidates.every(c => Number.isFinite(c.uploaded_rank))) {
+    return [{ label: "Uploaded rank", items: [...candidates].sort((a, b) => a.uploaded_rank - b.uploaded_rank) }];
+  }
   const sorted = sortCandidatesGrouped(candidates);
   const groups = [];
   for (const quadrant of QUADRANT_ORDER) {
@@ -177,6 +246,11 @@ function buildCandidateGroups(candidates) {
     });
   }
   return groups;
+}
+function candidateRankLabel(candidate, position) {
+  return Number.isFinite(candidate.uploaded_rank)
+    ? `Rank ${Number(candidate.uploaded_rank.toPrecision(8))}`
+    : `#${position}`;
 }
 function formatLabel(value) {
   const acronyms = new Set(["ibd", "ibs", "crc", "uc", "cd", "nafld", "t2d"]);
@@ -204,7 +278,7 @@ function App() {
     evidence: 0
   });
   const [selectedPair, setSelectedPair] = useState(null);
-  const [analysisResult, setAnalysisResult] = useState(null);
+  const [graphMessage, setGraphMessage] = useState("");
   const [protocol, setProtocol] = useState("");
   const [protocolError, setProtocolError] = useState("");
   const [validationPlan, setValidationPlan] = useState(null);
@@ -222,7 +296,9 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState("");
+  const [fileName, setFileName] = useState("");
   const [disease, setDisease] = useState("IBD");
+  const [uploadDisease, setUploadDisease] = useState("IBD");
   const [maxQueries, setMaxQueries] = useState(15);
   const [maxArticlesPerQuery, setMaxArticlesPerQuery] = useState(20);
   const [currentRunId, setCurrentRunId] = useState(initialRunId);
@@ -234,7 +310,9 @@ function App() {
   const fileRef = useRef(null);
   const UNCHARTED_PREVIEW = 3;
   const candidateGroups = useMemo(() => buildCandidateGroups(candidates), [candidates]);
-  const unchartedDarkMatter = useMemo(() => candidates.filter(c => (c.pair_bm_exp ?? 0) + (c.pair_md_exp ?? 0) === 0).sort((a, b) => (b.mmsage_norm ?? 0) - (a.mmsage_norm ?? 0)), [candidates]);
+  const unchartedDarkMatter = useMemo(() => candidates.filter(c => (c.pair_bm_exp ?? 0) + (c.pair_md_exp ?? 0) === 0)
+    .sort((a, b) => Number.isFinite(a.uploaded_rank) && Number.isFinite(b.uploaded_rank)
+      ? a.uploaded_rank - b.uploaded_rank : (b.mmsage_norm ?? 0) - (a.mmsage_norm ?? 0)), [candidates]);
   const buildMechanismSummary = useCallback(pair => {
     if (!pair) return "";
     return `Composite: ${(pair.composite_score ?? 0).toFixed(2)}, MMSage: ${(pair.mmsage_norm ?? 0).toFixed(3)}, bm_exp: ${pair.pair_bm_exp ?? 0}, md_exp: ${pair.pair_md_exp ?? 0}, Novelty: ${(pair.novelty_score ?? 0).toFixed(3)}`;
@@ -278,10 +356,13 @@ function App() {
     const qs = params.toString();
     const res = await fetch(`${API_BASE}/api/dual-axis-candidates${qs ? `?${qs}` : ""}`);
     const data = await res.json();
-    setCandidates(data?.candidates || []);
+    if (!res.ok) throw new Error(parseApiError(data, "Candidate results are unavailable."));
+    if (!Array.isArray(data?.candidates) || (targetRunId && data.run_id !== targetRunId)) {
+      throw new Error("Invalid candidate results for the requested run.");
+    }
+    setCandidates(data.candidates);
     if (data?.thresholds) setThresholds(data.thresholds);
     setSelectedPair(null);
-    setAnalysisResult(null);
     const nextRunId = data?.run_id || targetRunId || "";
     setCurrentRunId(prevRunId => {
       if (prevRunId !== nextRunId) {
@@ -297,6 +378,8 @@ function App() {
     });
     setDefaultRunId(data?.default_dashboard_run_id || "");
     setDisease(data?.disease || "IBD");
+    setUploadDisease(data?.disease || "IBD");
+    return data.candidates.length;
   }, []);
 
                     
@@ -306,9 +389,8 @@ function App() {
 
                          
   useEffect(() => {
-    if (candidates.length > 0) {
-      setTimeout(() => renderQuadrantPlot(candidates, thresholds), 100);
-    }
+    const timer = setTimeout(() => renderQuadrantPlot(candidates, thresholds), 100);
+    return () => clearTimeout(timer);
   }, [candidates, thresholds]);
   useEffect(() => {
     setUnchartedExpanded(false);
@@ -459,6 +541,7 @@ function App() {
     const makeTip = d => {
       const bact = d.bacteria.replace(/_/g, " ");
       let tip = `<b>${d.metabolite}</b><br>${bact}`;
+      if (Number.isFinite(d.uploaded_rank)) tip += `<br>Uploaded rank: ${d.uploaded_rank}`;
       tip += `<br>MMSage: ${d.mmsage_norm.toFixed(3)}`;
       tip += `<br>bm_exp: ${d.pair_bm_exp ?? 0}  |  md_exp: ${d.pair_md_exp ?? 0}`;
       tip += `<br>Composite: ${(d.composite_score ?? 0).toFixed(2)}`;
@@ -682,8 +765,11 @@ function App() {
                            
   const handleUpload = async () => {
     const file = fileRef.current?.files?.[0];
-    if (!file) return;
-    if (!disease.trim()) {
+    if (!file) {
+      setUploadMsg("Choose a coordinates CSV file first.");
+      return;
+    }
+    if (!uploadDisease.trim()) {
       setUploadMsg("Please enter a disease name.");
       return;
     }
@@ -691,52 +777,83 @@ function App() {
       setUploadMsg("PubMed limits must be positive integers.");
       return;
     }
+    if (file.size > COORDINATE_UPLOAD_LIMIT) {
+      setUploadMsg(COORDINATE_SIZE_ERROR);
+      return;
+    }
     setUploading(true);
     setUploadMsg("Uploading...");
+    const session = coordinateUploadSession(() => {
+      setUploading(false);
+      setUploadMsg("You left the upload page. Start a new upload to run the analysis again.");
+    });
     const formData = new FormData();
     formData.append("file", file);
     try {
       const params = new URLSearchParams({
-        disease: disease.trim(),
+        disease: uploadDisease.trim(),
+        client_managed: "true",
         max_queries: String(maxQueries),
         max_articles_per_query: String(maxArticlesPerQuery)
       });
-      const res = await fetch(`${API_BASE}/api/upload-coordinates?${params.toString()}`, {
-        method: "POST",
-        body: formData
-      });
-      const data = await res.json();
-      if (data.error) {
-        setUploadMsg("Error: " + data.error);
-        setUploading(false);
-        return;
-      }
-      const jobId = data.job_id || "";
+      const data = await submitCoordinates(params, formData, parseApiError);
+      const jobId = data.job_id;
+      if (!data.lease_token) throw new Error("The server did not return an upload session.");
+      session.attach(jobId, data.lease_token);
+      if (session.left) return;
       setCurrentJobId(jobId);
                                                            
-      setUploadMsg(`Pipeline started for ${disease}... (step1: MMSage signal)`);
-      const poll = setInterval(async () => {
+      setUploadMsg(`Pipeline started for ${uploadDisease.trim()}... (step1: MMSage signal)`);
+      const pollStatus = async () => {
+        if (session.left) return;
         try {
-          const pr = await fetch(`${API_BASE}/api/jobs/${encodeURIComponent(jobId)}/status`);
-          const pg = await pr.json();
-          if (pg.status === "done") {
-            clearInterval(poll);
-            setUploadMsg(`Done! ${pg.candidates || 0} candidates for ${pg.disease}. Loading your isolated run...`);
-            setUploading(false);
-            if (pg.run_id) {
-              updateDashboardUrl(pg.run_id);
-              await loadCandidates(pg.run_id);
+          let pr, pg;
+          try {
+            pr = await fetch(`${API_BASE}/api/jobs/${encodeURIComponent(jobId)}/status`);
+            if (pr.status >= 500) throw new Error();
+            pg = await pr.json();
+          } catch {
+            if (!session.left) {
+              setUploadMsg("Reconnecting to the analysis...");
+              setTimeout(pollStatus, 3000);
             }
-          } else if (pg.status === "error") {
-            clearInterval(poll);
-            setUploadMsg("Pipeline error: " + (pg.error || "unknown"));
-            setUploading(false);
-          } else {
-            setUploadMsg(`Pipeline running... ${pg.step || ""} (${pg.disease})`);
+            return;
           }
-        } catch (e) {                        }
-      }, 3000);
+          if (session.left) return;
+          if (!pr.ok) throw new Error(parseApiError(pg, "Unable to read the job status."));
+          if (pg.status === "queued" || pg.status === "running") {
+            setUploadMsg(`Pipeline running... ${pg.step || ""} (${pg.disease})`);
+            setTimeout(pollStatus, 3000);
+            return;
+          }
+          session.finish();
+          if (pg.status === "paused" || pg.status === "cancelled") {
+            setUploadMsg(pg.status === "paused" ? "Analysis paused. You can start a new upload." : "Analysis cancelled.");
+            setUploading(false);
+            return;
+          }
+          if (pg.status === "error") {
+            setUploadMsg(pg.error || "Unknown pipeline error.");
+            setUploading(false);
+            return;
+          }
+          if (pg.status !== "done") throw new Error("Unrecognized job status.");
+          if (!pg.run_id) throw new Error("No run ID is available for this job.");
+          setUploadMsg("Loading your isolated run...");
+          const count = await loadCandidates(pg.run_id);
+          updateDashboardUrl(pg.run_id);
+          setUploadMsg(`Done! ${count} candidates for ${pg.disease}.`);
+        } catch (error) {
+          if (session.left) return;
+          session.finish();
+          setUploadMsg("Pipeline error: " + error.message);
+        }
+        setUploading(false);
+      };
+      setTimeout(pollStatus, 3000);
     } catch (err) {
+      session.finish();
+      if (session.left) return;
       setUploadMsg("Upload failed: " + err.message);
       setUploading(false);
     }
@@ -759,32 +876,7 @@ function App() {
     setValidationPlanLoading(false);
     setValidationPlanJobId("");
     setValidationPlanStatus(null);
-    if (window.KgEvidence) window.KgEvidence.clearPanel();
-    const {
-      bacteria,
-      metabolite
-    } = selectedPair;
-    const kgParams = new URLSearchParams({
-      bacteria,
-      metabolite,
-      disease
-    });
-    if (currentRunId) kgParams.set("run_id", currentRunId);
-    try {
-      const kgRes = await fetch(`${API_BASE}/api/graph/chain?${kgParams.toString()}`);
-      const kg = await kgRes.json().catch(() => ({}));
-      if (!kgRes.ok) {
-        throw new Error(parseApiError(kg, `Knowledge graph request failed (${kgRes.status})`));
-      }
-      renderKG(kg);
-      setAnalysisResult({
-        ...selectedPair,
-        causal_chain: `${bacteria.replace(/_/g, " ")} → ${metabolite} → ${disease} | Composite: ${(selectedPair.composite_score ?? 0).toFixed(2)}`
-      });
-    } catch (err) {
-      console.error("KG render failed:", err);
-      setProtocolError(prev => prev ? `${prev} Knowledge graph: ${err.message}` : `Knowledge graph: ${err.message}`);
-    }
+    const { bacteria, metabolite } = selectedPair;
     try {
       const protoRes = await fetch(`${API_BASE}/api/validation-plan/start`, {
         method: "POST",
@@ -876,156 +968,50 @@ function App() {
       setQuestionPlanLoading(false);
     }
   };
-  const renderKG = kg => {
-    const container = document.getElementById("kg");
-    if (!container) return;
-    if (window._kgCy) window._kgCy.destroy();
-    const KG_COLORS = {
-      microbe: "#3b82f6",
-      metabolite: "#f59e0b",
-      pathway: "#10b981",
-      disease: "#ef4444",
-      enzyme: "#f97316",
-      receptor: "#06b6d4",
-      unknown: "#9ca3af"
-    };
-    const KG_SHAPES = {
-      microbe: "ellipse",
-      metabolite: "round-rectangle",
-      pathway: "diamond",
-      disease: "hexagon",
-      enzyme: "triangle",
-      receptor: "vee"
-    };
-    const nodes = (kg.nodes || []).map(node => ({
-      ...node,
-      data: {
-        ...node.data,
-        label: formatLabel(node?.data?.label || node?.data?.id || "")
-      }
-    }));
-    const edges = kg.edges || [];
-    window._kgCy = cytoscape({
-      container,
-      elements: [...nodes, ...edges],
-
-      userZoomingEnabled: true,
-      userPanningEnabled: true,
-      style: [
-
-      {
-        selector: "node",
-        style: {
-          "label": "data(label)",
-          "background-color": function (ele) {
-            return KG_COLORS[ele.data("type")] || "#cbd5e1";
-          },
-          "shape": function (ele) {
-            return KG_SHAPES[ele.data("type")] || "ellipse";
-          },
-          "color": "#111827",
-          "font-size": 18,
-
-          "font-weight": "700",
-          "text-wrap": "wrap",
-          "text-max-width": 180,
-          "text-valign": "bottom",
-          "text-halign": "center",
-          "text-margin-y": 10,
-          "text-background-color": "#ffffff",
-          "text-background-opacity": 0.96,
-          "text-background-padding": 5,
-          "text-background-shape": "roundrectangle",
-          "text-outline-color": "#ffffff",
-          "text-outline-width": 2,
-          "width": 66,
-
-          "height": 66,
-          "border-width": 2,
-          "border-color": "#ffffff"
-        }
-      },
-
-      {
-        selector: "node[?is_core]",
-        style: {
-          "width": 116,
-
-          "height": 116,
-          "font-size": 24,
-
-          "font-weight": "900",
-          "text-max-width": 220,
-          "border-width": 5,
-          "border-color": "#1e3a8a",
-          "text-background-opacity": 1
-        }
-      },
-
-      {
-        selector: "edge",
-        style: {
-          "width": 3,
-          "line-color": "#cbd5e1",
-          "target-arrow-color": "#cbd5e1",
-          "curve-style": "bezier",
-          "target-arrow-shape": "triangle",
-          "label": "data(relation)",
-          "font-size": 14,
-          "color": "#475569",
-          "text-rotation": "autorotate",
-          "text-outline-color": "#ffffff",
-          "text-outline-width": 4
-        }
-      },
-
-      {
-        selector: "edge[?is_chain]",
-        style: {
-          "width": 7,
-          "line-color": "#2563eb",
-          "target-arrow-color": "#2563eb",
-          "font-size": 17,
-          "font-weight": "bold",
-          "color": "#1e40af",
-          "text-outline-width": 4,
-          "z-index": 10
-        }
-      }, {
-        selector: "node:selected",
-        style: {
-          "border-width": 5,
-          "border-color": "#eab308"
-        }
-      }],
-
-      layout: {
-        name: "dagre",
-        rankDir: "LR",
-        nodeSep: 30,
-
-        rankSep: 90,
-
-        padding: 15
-      }
-    });
-    const captureKgImage = () => {
-      const dataUri = cytoscapeToPrintSvgUri(window._kgCy);
-      if (dataUri) setKgPrintImg(dataUri);
-    };
-    window._kgCy.one("layoutstop", () => setTimeout(captureKgImage, 60));
-    setTimeout(captureKgImage, 250);
-    window._kgEvidenceContext = () => ({
-      bacteria: selectedPair?.bacteria || "",
-      metabolite: selectedPair?.metabolite || "",
-      disease: disease || "IBD",
-      run_id: currentRunId || "",
-      api_base: API_BASE
-    });
-    if (window.KgEvidence) {
-      window.KgEvidence.bind(window._kgCy, () => window._kgEvidenceContext());
+  useEffect(() => {
+    window.KgEvidence.clearPanel();
+    setKgPrintImg("");
+    if (!selectedPair) {
+      setGraphMessage("Select a candidate to see its agent evidence.");
+      return;
     }
-  };
+    const controller = new AbortController();
+    let cy;
+    const { bacteria, metabolite } = selectedPair;
+    const params = new URLSearchParams({ bacteria, metabolite, disease, view: "agent" });
+    if (currentRunId) params.set("run_id", currentRunId);
+    setGraphMessage("Loading agent evidence...");
+    async function loadGraph() {
+      try {
+        const response = await fetch(`${API_BASE}/api/graph/chain?${params}`, { signal: controller.signal });
+        const graph = await response.json();
+        if (controller.signal.aborted) return;
+        if (!response.ok) throw new Error(parseApiError(graph, "Candidate evidence is unavailable."));
+        if (graph.graph_source !== "agent" || (currentRunId && graph.run_id !== currentRunId)) {
+          throw new Error("The requested agent graph is unavailable.");
+        }
+        cy = window.KgEvidence.renderAgentGraph(document.getElementById("kg"), graph);
+        window._kgCy = cy;
+        setKgPrintImg(cytoscapeToPrintSvgUri(cy) || "");
+        if (!graph.edges.length) {
+          setGraphMessage(graph.evidence_status === "unavailable"
+            ? "No relationship evidence was archived for this candidate."
+            : "No supported links were found for this candidate.");
+        } else {
+          setGraphMessage(graph.nodes.every(node => node.data.is_core)
+            ? "The available evidence links only the core entities. Select a link to inspect its evidence." : "");
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) setGraphMessage(error.message || "Unable to load agent evidence.");
+      }
+    }
+    loadGraph();
+    return () => {
+      controller.abort();
+      if (cy) cy.destroy();
+      if (window._kgCy === cy) window._kgCy = null;
+    };
+  }, [selectedPair, disease, currentRunId]);
   return              React.createElement("div", {
     className: "min-h-screen p-6"
   },              React.createElement("header", {
@@ -1034,7 +1020,9 @@ function App() {
     className: "text-3xl font-bold text-gray-900"
   }, "MMSage-Insight"),              React.createElement("p", {
     className: "text-gray-500"
-  }, "MMSage Signal × Evidence Foundation | ★ = Novel (no triple evidence)")),              React.createElement("a", {
+  }, "MMSage Signal × Evidence Foundation | ★ = Novel (no triple evidence)")), React.createElement("div", {
+    className: "flex flex-wrap items-center gap-2"
+  }, React.createElement("a", {
     href: "/browse",
     className: "inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition shadow-sm"
   },              React.createElement("svg", {
@@ -1054,13 +1042,13 @@ function App() {
       loadCandidates("").catch(console.error);
     },
     className: "inline-flex items-center gap-2 px-4 py-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 rounded-lg text-sm font-medium transition shadow-sm"
-  }, "View Home Result")),              React.createElement("div", {
+  }, "View Home Result"))),              React.createElement("div", {
     className: "mb-6 p-4 bg-gray-50 border border-gray-200 rounded-xl flex items-center gap-4 flex-wrap"
   },              React.createElement("div", null,              React.createElement("span", {
     className: "text-sm font-medium text-gray-700"
   }, "Disease:"),              React.createElement("input", {
-    value: disease,
-    onChange: e => setDisease(e.target.value),
+    value: uploadDisease,
+    onChange: e => setUploadDisease(e.target.value),
     className: "ml-2 border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-32",
     placeholder: "e.g. IBD"
   })),              React.createElement("div", null,              React.createElement("span", {
@@ -1085,20 +1073,29 @@ function App() {
     className: "border-l border-gray-300 pl-4"
   },              React.createElement("span", {
     className: "text-sm font-medium text-gray-700"
-  }, "Upload Coordinates CSV:")),              React.createElement("input", {
+  }, "Upload Coordinates CSV:")), React.createElement("div", {
+    className: "flex items-center gap-2 w-64 max-w-full text-sm text-gray-600"
+  }, React.createElement("input", {
     ref: fileRef,
     type: "file",
     accept: ".csv",
-    className: "text-sm text-gray-600 file:mr-2 file:py-1.5 file:px-4 file:rounded-lg file:border file:border-gray-300 file:bg-white file:text-gray-700 file:cursor-pointer hover:file:bg-gray-50"
-  }),              React.createElement("button", {
+    hidden: true,
+    onChange: e => setFileName(e.target.files[0]?.name || "")
+  }), React.createElement("button", {
+    type: "button",
+    onClick: () => fileRef.current.click(),
+    "aria-label": "Choose File for Upload Coordinates CSV",
+    "aria-describedby": "coordinates-filename",
+    className: "shrink-0 px-4 py-1.5 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+  }, "Choose File"), React.createElement("span", {
+    id: "coordinates-filename", className: "truncate", title: fileName, "aria-live": "polite"
+  }, fileName)), React.createElement("button", {
     onClick: handleUpload,
     disabled: uploading,
     className: "px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-medium transition"
   }, uploading ? "Uploading..." : "Upload & Process"), uploadMsg &&              React.createElement("span", {
     className: "text-sm text-amber-600"
-  }, uploadMsg), currentRunId &&              React.createElement("span", {
-    className: "text-xs text-gray-500"
-  }, "Viewing run: ", currentRunId === defaultRunId ? "home default" : currentRunId), currentJobId && uploading &&              React.createElement("span", {
+  }, uploadMsg), currentJobId && uploading &&              React.createElement("span", {
     className: "text-xs text-gray-400 font-mono"
   }, "Job: ", currentJobId)),              React.createElement("div", {
     className: "flex flex-col gap-6"
@@ -1147,11 +1144,11 @@ function App() {
   }, (() => {
     let rank = 0;
     return candidateGroups.map(group =>              React.createElement("div", {
-      key: group.quadrant,
+      key: group.label || group.quadrant,
       className: "space-y-2"
     },              React.createElement("div", {
       className: "sticky top-0 z-10 bg-white/95 backdrop-blur px-1 py-1 text-xs font-semibold text-gray-600 border-b border-gray-100"
-    }, QUADRANT_HEADERS[group.quadrant] || `Quadrant ${group.quadrant}`,              React.createElement("span", {
+    }, group.label || QUADRANT_HEADERS[group.quadrant] || `Quadrant ${group.quadrant}`,              React.createElement("span", {
       className: "ml-1 font-normal text-gray-400"
     }, "(", group.items.length, ")")), group.items.map(c => {
       rank += 1;
@@ -1165,10 +1162,10 @@ function App() {
       },              React.createElement("div", {
         className: "text-sm font-medium text-gray-800 truncate"
       }, c.metabolite),              React.createElement("span", {
-        className: "text-xs text-gray-400"
-      }, "#", rank)),              React.createElement("div", {
+        className: "text-xs text-gray-400 whitespace-nowrap", title: c.uploaded_rank?.toString()
+      }, candidateRankLabel(c, rank))),              React.createElement("div", {
         className: "text-xs text-gray-500 flex gap-3 mt-1 flex-wrap"
-      },              React.createElement("span", null, "MMSage: ", c.mmsage_norm.toFixed(3)),              React.createElement("span", null, "bm: ", c.pair_bm_exp ?? 0),              React.createElement("span", null, "md: ", c.pair_md_exp ?? 0),              React.createElement("span", {
+      }, group.label && React.createElement("span", null, "Quadrant ", c.quadrant),              React.createElement("span", null, "MMSage: ", c.mmsage_norm.toFixed(3)),              React.createElement("span", null, "bm: ", c.pair_bm_exp ?? 0),              React.createElement("span", null, "md: ", c.pair_md_exp ?? 0),              React.createElement("span", {
         className: `font-medium ${(c.novelty_score ?? 1) >= 1.0 ? "text-amber-500" : "text-emerald-600"}`
       }, (c.novelty_score ?? 1) >= 1.0 ? "★ novel" : "known")));
     })));
@@ -1208,8 +1205,8 @@ function App() {
     },              React.createElement("div", {
       className: "font-medium text-gray-700 truncate"
     }, c.metabolite),              React.createElement("span", {
-      className: "text-gray-400 shrink-0"
-    }, "#", i + 1)),              React.createElement("div", {
+      className: "text-gray-400 shrink-0", title: c.uploaded_rank?.toString()
+    }, candidateRankLabel(c, i + 1))),              React.createElement("div", {
       className: "text-gray-400 flex gap-2 mt-0.5"
     },              React.createElement("span", null, "MMSage ", c.mmsage_norm.toFixed(3)),              React.createElement("span", null, "uncharted")));
   })), unchartedDarkMatter.length > UNCHARTED_PREVIEW &&              React.createElement("button", {
@@ -1220,7 +1217,7 @@ function App() {
     className: "grid grid-cols-12 gap-6"
   },              React.createElement("div", {
     id: "step2-card",
-    className: "col-span-12 lg:col-span-8 bg-white rounded-xl p-4 border border-gray-200 shadow-sm flex flex-col"
+    className: "min-w-0 col-span-12 lg:col-span-8 bg-white rounded-xl p-4 border border-gray-200 shadow-sm flex flex-col"
   },              React.createElement("div", {
     className: "flex items-center justify-between mb-2"
   },              React.createElement("h2", {
@@ -1285,13 +1282,13 @@ function App() {
   },              React.createElement("span", {
     className: "inline-block w-3.5 h-3.5 rounded-full bg-gray-400 border border-white shadow-sm"
   }),              React.createElement("span", null, "Unknown"))),              React.createElement("p", {
-    className: "text-xs text-gray-400 mt-2 screen-only"
-  }, "Click a node to view literature evidence below."),              React.createElement("div", {
+    className: "text-sm text-gray-600 mt-2 screen-only", role: "status"
+  }, graphMessage || "Select a node or link to inspect its evidence."),              React.createElement("div", {
     id: "kg-evidence-panel",
     className: "hidden mt-4 border-t border-gray-100 pt-4 screen-only"
   },              React.createElement("h3", {
     className: "text-sm font-semibold text-gray-800 mb-2"
-  }, "Literature evidence"),              React.createElement("div", {
+  }, "Relationship evidence"),              React.createElement("div", {
     id: "kg-evidence-content",
     className: "text-sm max-h-[360px] overflow-y-auto pr-1"
   })), kgPrintImg &&              React.createElement("div", {
@@ -1341,11 +1338,7 @@ function App() {
     style: {
       color: (selectedPair.novelty_score ?? 1) >= 1.0 ? "#d97706" : "#059669"
     }
-  }, (selectedPair.novelty_score ?? 0).toFixed(3), " ", (selectedPair.novelty_score ?? 1) >= 1.0 ? "★ novel" : "known"))), analysisResult &&              React.createElement("div", {
-    className: "bg-indigo-50 rounded-lg p-3 border-l-4 border-indigo-500 mt-auto"
-  },              React.createElement("div", {
-    className: "text-sm text-indigo-900 font-medium"
-  }, analysisResult.causal_chain))) :              React.createElement("div", {
+  }, (selectedPair.novelty_score ?? 0).toFixed(3), " ", (selectedPair.novelty_score ?? 1) >= 1.0 ? "★ novel" : "known")))) :              React.createElement("div", {
     className: "text-gray-400 text-center flex-1 flex items-center justify-center"
   }, "Select a candidate to view analysis")))),              React.createElement("div", {
     id: "step3-card",
@@ -1412,7 +1405,7 @@ function App() {
     className: "text-xs text-gray-500"
   }, item.progress_percent ?? 0, "%"), item.timestamp &&              React.createElement("span", {
     className: "text-xs text-gray-400"
-  }, new Date(item.timestamp).toLocaleTimeString())),              React.createElement("p", {
+  }, new Date(item.timestamp).toLocaleTimeString("en-US"))),              React.createElement("p", {
     className: "mt-1 text-sm text-gray-700"
   }, item.message), item.extra && Object.keys(item.extra).length > 0 &&              React.createElement("p", {
     className: "mt-1 text-xs text-gray-500"
@@ -1490,7 +1483,7 @@ function App() {
     className: "text-xs text-slate-500"
   }, item.progress_percent ?? 0, "%"), item.timestamp &&              React.createElement("span", {
     className: "text-xs text-slate-400"
-  }, new Date(item.timestamp).toLocaleTimeString())),              React.createElement("p", {
+  }, new Date(item.timestamp).toLocaleTimeString("en-US"))),              React.createElement("p", {
     className: "mt-1 text-sm text-slate-700"
   }, item.message), item.extra && Object.keys(item.extra).length > 0 &&              React.createElement("p", {
     className: "mt-1 text-xs text-slate-500"
