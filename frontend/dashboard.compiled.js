@@ -8,14 +8,15 @@ const {
 const API_BASE = window.location.origin;
 const COORDINATE_UPLOAD_LIMIT = 100 * 1024 * 1024;
 const COORDINATE_SIZE_ERROR = "File too large. The CSV limit is 100 MiB.";
-
 async function submitCoordinates(params, formData, parseApiError) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 120000);
   const timeoutMessage = "Upload timed out. Try a smaller CSV or a faster connection.";
   try {
     const res = await fetch(`${API_BASE}/api/upload-coordinates?${params}`, {
-      method: "POST", body: formData, signal: controller.signal
+      method: "POST",
+      body: formData,
+      signal: controller.signal
     });
     if (res.status === 413) throw new Error(COORDINATE_SIZE_ERROR);
     if (res.status === 408 || res.status === 504) throw new Error(timeoutMessage);
@@ -33,67 +34,69 @@ async function submitCoordinates(params, formData, parseApiError) {
     clearTimeout(timeout);
   }
 }
-
 function coordinateUploadSession(onLeave) {
   let jobUrl = "";
   let body;
   let heartbeat;
   let left = false;
-
   function finish() {
     clearInterval(heartbeat);
     window.removeEventListener("pagehide", leave);
   }
-
   function pause() {
     if (!jobUrl) return;
     const url = jobUrl + "/pause";
     if (!window.navigator.sendBeacon?.(url, body)) {
-      fetch(url, { method: "POST", body, keepalive: true }).catch(() => {});
+      fetch(url, {
+        method: "POST",
+        body,
+        keepalive: true
+      }).catch(() => {});
     }
   }
-
   function leave() {
     left = true;
     finish();
     pause();
     onLeave();
   }
-
   window.addEventListener("pagehide", leave);
   return {
-    get left() { return left; },
+    get left() {
+      return left;
+    },
     attach(jobId, token) {
       jobUrl = API_BASE + "/api/jobs/" + encodeURIComponent(jobId);
-      body = new Blob([JSON.stringify({ token })], { type: "application/json" });
+      body = new Blob([JSON.stringify({
+        token
+      })], {
+        type: "application/json"
+      });
       if (left) {
         pause();
         return;
       }
-      heartbeat = setInterval(() => fetch(jobUrl + "/heartbeat", { method: "POST", body }).catch(() => {}), 15000);
+      heartbeat = setInterval(() => fetch(jobUrl + "/heartbeat", {
+        method: "POST",
+        body
+      }).catch(() => {}), 15000);
     },
     finish
   };
 }
 const MM_TO_PX_150 = 150 / 25.4;
-
-                                                                      
 const A4_PORTRAIT_THIRD = {
   widthMm: 210,
   heightMm: 297 / 3,
   widthPx: Math.round(210 * MM_TO_PX_150),
   heightPx: Math.round(297 / 3 * MM_TO_PX_150)
 };
-
-                                                                      
 const A4_LANDSCAPE = {
   widthMm: 297,
   heightMm: 210,
   widthPx: 1754,
   heightPx: 1240
 };
-
-                                  
 const FIGURE = {
   plot: {
     format: "svg",
@@ -224,9 +227,23 @@ function sortCandidatesGrouped(candidates) {
     return (b.mmsage_norm ?? 0) - (a.mmsage_norm ?? 0);
   });
 }
-function buildCandidateGroups(candidates) {
+function buildCandidateGroups(candidates, withinMicrobe) {
+  if (withinMicrobe) {
+    const byMicrobe = new Map();
+    for (const row of candidates) {
+      if (!byMicrobe.has(row.bacteria)) byMicrobe.set(row.bacteria, []);
+      byMicrobe.get(row.bacteria).push(row);
+    }
+    return Array.from(byMicrobe, ([label, items]) => ({
+      label,
+      items: items.sort((a, b) => a.uploaded_rank - b.uploaded_rank)
+    }));
+  }
   if (candidates.length && candidates.every(c => Number.isFinite(c.uploaded_rank))) {
-    return [{ label: "Uploaded rank", items: [...candidates].sort((a, b) => a.uploaded_rank - b.uploaded_rank) }];
+    return [{
+      label: "Uploaded rank",
+      items: [...candidates].sort((a, b) => a.uploaded_rank - b.uploaded_rank)
+    }];
   }
   const sorted = sortCandidatesGrouped(candidates);
   const groups = [];
@@ -248,9 +265,7 @@ function buildCandidateGroups(candidates) {
   return groups;
 }
 function candidateRankLabel(candidate, position) {
-  return Number.isFinite(candidate.uploaded_rank)
-    ? `Rank ${Number(candidate.uploaded_rank.toPrecision(8))}`
-    : `#${position}`;
+  return Number.isFinite(candidate.uploaded_rank) ? `Rank ${Number(candidate.uploaded_rank.toPrecision(8))}` : `#${position}`;
 }
 function formatLabel(value) {
   const acronyms = new Set(["ibd", "ibs", "crc", "uc", "cd", "nafld", "t2d"]);
@@ -270,8 +285,114 @@ function supportLevelClass(level) {
       return "bg-gray-100 text-gray-700";
   }
 }
+const evaluationExample = "/static/demo/example20.csv";
+function EvaluationHelp({
+  onLoadExample,
+  disabled
+}) {
+  const [mode, setMode] = useState("closed");
+  const trigger = useRef(null);
+  const panel = useRef(null);
+  const help = useRef(null);
+  const open = mode !== "closed";
+  React.useLayoutEffect(() => {
+    if (!open) return;
+    function positionPanel() {
+      const box = help.current.getBoundingClientRect();
+      const popup = panel.current;
+      const left = Math.min(Math.max(box.left - 16, 12), document.documentElement.clientWidth - popup.offsetWidth - 12);
+      popup.style.left = left - box.left + "px";
+      const below = window.innerHeight - box.bottom - 12;
+      const above = box.top - 12;
+      const showAbove = below < Math.min(popup.scrollHeight + 2, window.innerHeight * 0.65) && above > below;
+      popup.style.top = showAbove ? "auto" : "100%";
+      popup.style.bottom = showAbove ? "100%" : "auto";
+      popup.style.maxHeight = Math.min(window.innerHeight * 0.65, Math.max(0, showAbove ? above : below)) + "px";
+    }
+    function outside(event) {
+      if (!help.current.contains(event.target)) setMode("closed");
+    }
+    function escape(event) {
+      if (event.key === "Escape") {
+        if (panel.current.contains(document.activeElement)) trigger.current.focus();
+        setMode("closed");
+      }
+    }
+    positionPanel();
+    window.addEventListener("resize", positionPanel);
+    window.addEventListener("scroll", positionPanel, {
+      passive: true
+    });
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", escape);
+    return () => {
+      window.removeEventListener("resize", positionPanel);
+      window.removeEventListener("scroll", positionPanel);
+      document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [open]);
+  return React.createElement("div", {
+    ref: help,
+    className: "relative flex self-stretch items-center",
+    onPointerEnter: e => {
+      if (e.pointerType === "mouse") setMode(current => current === "closed" ? "hover" : current);
+    },
+    onPointerLeave: e => {
+      if (e.pointerType === "mouse" && !panel.current.contains(document.activeElement)) setMode(current => current === "hover" ? "closed" : current);
+    },
+    onBlur: e => {
+      if (!e.currentTarget.contains(e.relatedTarget)) setMode("closed");
+    }
+  }, React.createElement("button", {
+    type: "button",
+    ref: trigger,
+    "aria-label": "Candidate evaluation help",
+    "aria-expanded": open,
+    "aria-controls": "evaluation-help-panel",
+    onClick: () => setMode(current => current === "pinned" ? "closed" : "pinned"),
+    className: "flex h-8 w-8 items-center justify-center rounded-full text-indigo-700 hover:bg-indigo-50 focus-visible:outline-indigo-600"
+  }, React.createElement("span", {
+    "aria-hidden": "true",
+    className: "flex h-5 w-5 items-center justify-center rounded-full border border-current text-sm font-semibold"
+  }, "?")), React.createElement("section", {
+    ref: panel,
+    id: "evaluation-help-panel",
+    "aria-labelledby": "evaluation-help-title",
+    hidden: !open,
+    className: "absolute z-30 overflow-y-auto rounded-lg border border-gray-200 bg-white p-4 text-sm leading-5 text-gray-700 shadow-lg",
+    style: {
+      width: "min(22rem, calc(100vw - 2rem))"
+    }
+  }, React.createElement("h2", {
+    id: "evaluation-help-title",
+    className: "font-semibold text-gray-900"
+  }, "HELP"), React.createElement("p", {
+    className: "mt-2"
+  }, "Compare ranked microbe\u2013metabolite pairs with published evidence for a disease."), React.createElement("p", {
+    className: "mt-2"
+  }, React.createElement("strong", null, "Input"), " \u2014 Choose ", React.createElement("code", null, "correlation_ranking.csv"), " from Correlation ranking, enter the disease and click ", React.createElement("strong", null, "Upload & Analyze"), ". You can also use a coordinate CSV."), React.createElement("p", {
+    className: "mt-2"
+  }, React.createElement("strong", null, "Results"), " \u2014 Select a point in the chart to see the pair and its supporting evidence."), React.createElement("div", {
+    className: "mt-3 border-t border-gray-200 pt-3"
+  }, React.createElement("button", {
+    type: "button",
+    disabled: disabled,
+    onClick: () => {
+      trigger.current.focus();
+      setMode("closed");
+      onLoadExample();
+    },
+    className: "rounded border border-indigo-300 px-3 py-1.5 font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
+  }, "upload example data"))));
+}
 function App() {
-  const initialRunId = new URLSearchParams(window.location.search).get("run_id") || "";
+  const [entryParams] = useState(() => new URLSearchParams(window.location.search));
+  const initialRunId = entryParams.get("run_id") || "";
+  const [uploadSummary, setUploadSummary] = useState(null);
+  const [sourceFile, setSourceFile] = useState("");
+  const dataRequest = useRef(0);
+  const withinMicrobe = uploadSummary?.rank_scope === "within_microbe";
   const [candidates, setCandidates] = useState([]);
   const [thresholds, setThresholds] = useState({
     mmsage: 0.5,
@@ -295,6 +416,7 @@ function App() {
   const [questionPlanPromptConstraints, setQuestionPlanPromptConstraints] = useState("");
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [loadingExample, setLoadingExample] = useState(false);
   const [uploadMsg, setUploadMsg] = useState("");
   const [fileName, setFileName] = useState("");
   const [disease, setDisease] = useState("IBD");
@@ -309,22 +431,21 @@ function App() {
   const [unchartedExpanded, setUnchartedExpanded] = useState(false);
   const fileRef = useRef(null);
   const UNCHARTED_PREVIEW = 3;
-  const candidateGroups = useMemo(() => buildCandidateGroups(candidates), [candidates]);
-  const unchartedDarkMatter = useMemo(() => candidates.filter(c => (c.pair_bm_exp ?? 0) + (c.pair_md_exp ?? 0) === 0)
-    .sort((a, b) => Number.isFinite(a.uploaded_rank) && Number.isFinite(b.uploaded_rank)
-      ? a.uploaded_rank - b.uploaded_rank : (b.mmsage_norm ?? 0) - (a.mmsage_norm ?? 0)), [candidates]);
+  const candidateGroups = useMemo(() => buildCandidateGroups(candidates, withinMicrobe), [candidates, withinMicrobe]);
+  const unchartedDarkMatter = useMemo(() => candidates.filter(c => (c.pair_bm_exp ?? 0) + (c.pair_md_exp ?? 0) === 0).sort((a, b) => Number.isFinite(a.uploaded_rank) && Number.isFinite(b.uploaded_rank) ? a.uploaded_rank - b.uploaded_rank : (b.mmsage_norm ?? 0) - (a.mmsage_norm ?? 0)), [candidates]);
   const buildMechanismSummary = useCallback(pair => {
     if (!pair) return "";
     return `Composite: ${(pair.composite_score ?? 0).toFixed(2)}, MMSage: ${(pair.mmsage_norm ?? 0).toFixed(3)}, bm_exp: ${pair.pair_bm_exp ?? 0}, md_exp: ${pair.pair_md_exp ?? 0}, Novelty: ${(pair.novelty_score ?? 0).toFixed(3)}`;
   }, []);
   const updateDashboardUrl = useCallback(runId => {
     const url = new URL(window.location.href);
+    url.searchParams.delete("demo");
     if (runId) {
       url.searchParams.set("run_id", runId);
     } else {
       url.searchParams.delete("run_id");
     }
-    window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+    window.history.replaceState({}, "", url.href);
   }, []);
   const formatValidationStage = useCallback(stage => {
     const labels = {
@@ -334,6 +455,7 @@ function App() {
       round1_search: "Round 1 Literature Search",
       audit_protocol: "Protocol Audit",
       audit_scope: "Question Scope Audit",
+      prepare_question: "Build Question Focus",
       followup_queries: "Generate Follow-up Queries",
       round2_search: "Follow-up Literature Search",
       fulltext_methods: "Extract Full-Text Methods",
@@ -343,7 +465,6 @@ function App() {
       in_vivo_design: "Design In Vivo Package",
       component_review: "Review Five Components",
       self_reflection: "Self-Reflection & Revision",
-      prepare_question: "Build Question Focus",
       assemble: "Assemble Final Plan",
       completed: "Completed",
       error: "Error"
@@ -351,18 +472,23 @@ function App() {
     return labels[stage] || formatLabel(stage || "running");
   }, []);
   const loadCandidates = useCallback(async (targetRunId = "") => {
+    const request = ++dataRequest.current;
     const params = new URLSearchParams();
     if (targetRunId) params.set("run_id", targetRunId);
     const qs = params.toString();
     const res = await fetch(`${API_BASE}/api/dual-axis-candidates${qs ? `?${qs}` : ""}`);
     const data = await res.json();
     if (!res.ok) throw new Error(parseApiError(data, "Candidate results are unavailable."));
-    if (!Array.isArray(data?.candidates) || (targetRunId && data.run_id !== targetRunId)) {
+    if (!Array.isArray(data?.candidates) || targetRunId && data.run_id !== targetRunId) {
       throw new Error("Invalid candidate results for the requested run.");
     }
+    if (request !== dataRequest.current) return;
+    setUploadSummary(data.upload_summary || null);
+    setSourceFile(data.source_file || "");
     setCandidates(data.candidates);
     if (data?.thresholds) setThresholds(data.thresholds);
-    setSelectedPair(null);
+    const firstPair = data.is_default_dashboard_run ? data.candidates.find(c => c.bacteria === "Akkermansia_muciniphila" && c.metabolite === "Isobutyric acid") : data.candidates[0];
+    setSelectedPair(firstPair || null);
     const nextRunId = data?.run_id || targetRunId || "";
     setCurrentRunId(prevRunId => {
       if (prevRunId !== nextRunId) {
@@ -381,13 +507,12 @@ function App() {
     setUploadDisease(data?.disease || "IBD");
     return data.candidates.length;
   }, []);
-
-                    
   useEffect(() => {
-    loadCandidates(initialRunId).catch(console.error);
+    loadCandidates(initialRunId).catch(error => setUploadMsg(error.message));
+    return () => {
+      dataRequest.current++;
+    };
   }, [initialRunId, loadCandidates]);
-
-                         
   useEffect(() => {
     const timer = setTimeout(() => renderQuadrantPlot(candidates, thresholds), 100);
     return () => clearTimeout(timer);
@@ -403,7 +528,8 @@ function App() {
     setValidationPlanLoading(false);
     setValidationPlanJobId("");
     setValidationPlanStatus(null);
-  }, [selectedPair?.bacteria, selectedPair?.metabolite, disease]);
+    setLoading(false);
+  }, [selectedPair?.bacteria, selectedPair?.metabolite, disease, currentRunId]);
   useEffect(() => {
     if (!validationPlanJobId || !validationPlanLoading) return undefined;
     let cancelled = false;
@@ -481,8 +607,6 @@ function App() {
       cancelled = true;
     };
   }, [questionPlanJobId, questionPlanLoading]);
-
-                                                              
   useEffect(() => {
     const handleBeforePrint = () => {
       const plotEl = document.getElementById("main-plot");
@@ -499,7 +623,6 @@ function App() {
       }
     };
     window.addEventListener("beforeprint", handleBeforePrint);
-                                                                                      
     const mediaQuery = window.matchMedia("print");
     const onMqChange = e => {
       if (e.matches) {
@@ -523,14 +646,7 @@ function App() {
   const renderQuadrantPlot = useCallback((data, thresh) => {
     const el = document.getElementById("main-plot");
     if (!el) return;
-
-                                                                                           
     const withEvidence = data.filter(d => (d.pair_bm_exp ?? 0) + (d.pair_md_exp ?? 0) > 0);
-
-                    
-                                              
-                                                                                    
-                                     
     const known = withEvidence.filter(d => (d.novelty_score ?? 1) < 1.0);
     const allNovel = withEvidence.filter(d => (d.novelty_score ?? 1) >= 1.0);
     const topN = 10;
@@ -548,18 +664,13 @@ function App() {
       tip += `<br>Novelty: ${(d.novelty_score ?? 0).toFixed(3)} ${(d.novelty_score ?? 1) >= 1.0 ? "★ novel" : ""}`;
       return tip;
     };
-
-                                                                    
-                                                         
     const compScores = withEvidence.map(d => d.composite_score ?? 0);
     const compMax = Math.max(...compScores, 1);
     const compSize = (d, minS, maxS) => {
       const ratio = (d.composite_score ?? 0) / compMax;
       return minS + ratio * (maxS - minS);
     };
-    const traces = [
-                        
-    {
+    const traces = [{
       x: known.map(d => d.mmsage_norm),
       y: known.map(d => (d.pair_bm_exp ?? 0) + (d.pair_md_exp ?? 0)),
       mode: "markers",
@@ -578,9 +689,7 @@ function App() {
       text: known.map(makeTip),
       hovertemplate: "%{text}<extra></extra>",
       _items: known
-    },
-                               
-    {
+    }, {
       x: otherNovel.map(d => d.mmsage_norm),
       y: otherNovel.map(d => (d.pair_bm_exp ?? 0) + (d.pair_md_exp ?? 0)),
       mode: "markers",
@@ -599,9 +708,7 @@ function App() {
       text: otherNovel.map(makeTip),
       hovertemplate: "%{text}<extra></extra>",
       _items: otherNovel
-    },
-                                               
-    {
+    }, {
       x: topNovel.map(d => d.mmsage_norm),
       y: topNovel.map(d => (d.pair_bm_exp ?? 0) + (d.pair_md_exp ?? 0)),
       mode: "markers+text",
@@ -629,8 +736,6 @@ function App() {
       hovertemplate: "%{hovertext}<extra></extra>",
       _items: topNovel
     }];
-
-                                                                       
     const sizeLegendValues = [0.2, 0.5, 1.0];
     const sizeLegendLabels = ["Composite Low", "Composite Mid", "Composite High"];
     sizeLegendValues.forEach((ratio, i) => {
@@ -656,19 +761,13 @@ function App() {
       });
     });
     const allEF = data.map(d => (d.pair_bm_exp ?? 0) + (d.pair_md_exp ?? 0));
-
-                                                                              
-                                                                                                
     const logY = v => Math.log2(1 + v);
     const yRaw = allEF;
     const yTransformed = yRaw.map(logY);
     const yMaxT = Math.max(...yTransformed, 1) * 1.1;
     const tx = thresh.mmsage;
-                                                                                                             
-    const tyRaw = Math.max(thresh.evidence, 1);                                             
+    const tyRaw = Math.max(thresh.evidence, 1);
     const ty = logY(tyRaw);
-
-                                   
     traces.forEach(tr => {
       tr.y = tr.y.map(v => logY(v));
     });
@@ -761,12 +860,29 @@ function App() {
       }
     });
   }, []);
-
-                           
+  const loadEvaluationExample = async () => {
+    setLoadingExample(true);
+    setUploadMsg("Loading example…");
+    try {
+      const response = await fetch(evaluationExample);
+      if (!response.ok) throw new Error("Could not load the example CSV.");
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([await response.blob()], "example20.csv", {
+        type: "text/csv"
+      }));
+      fileRef.current.files = transfer.files;
+      setFileName(transfer.files[0].name);
+      setUploadMsg("");
+    } catch (error) {
+      setUploadMsg(error.message);
+    } finally {
+      setLoadingExample(false);
+    }
+  };
   const handleUpload = async () => {
     const file = fileRef.current?.files?.[0];
     if (!file) {
-      setUploadMsg("Choose a coordinates CSV file first.");
+      setUploadMsg("Choose a ranking or coordinate CSV first.");
       return;
     }
     if (!uploadDisease.trim()) {
@@ -802,7 +918,6 @@ function App() {
       session.attach(jobId, data.lease_token);
       if (session.left) return;
       setCurrentJobId(jobId);
-                                                           
       setUploadMsg(`Pipeline started for ${uploadDisease.trim()}... (step1: MMSage signal)`);
       const pollStatus = async () => {
         if (session.left) return;
@@ -839,7 +954,7 @@ function App() {
           }
           if (pg.status !== "done") throw new Error("Unrecognized job status.");
           if (!pg.run_id) throw new Error("No run ID is available for this job.");
-          setUploadMsg("Loading your isolated run...");
+          setUploadMsg("Loading your results…");
           const count = await loadCandidates(pg.run_id);
           updateDashboardUrl(pg.run_id);
           setUploadMsg(`Done! ${count} candidates for ${pg.disease}.`);
@@ -864,8 +979,6 @@ function App() {
     if (typeof d === "string") return d;
     return fallback;
   };
-
-                          
   const handleAnalyze = async () => {
     if (!selectedPair) return;
     setLoading(true);
@@ -876,7 +989,10 @@ function App() {
     setValidationPlanLoading(false);
     setValidationPlanJobId("");
     setValidationPlanStatus(null);
-    const { bacteria, metabolite } = selectedPair;
+    const {
+      bacteria,
+      metabolite
+    } = selectedPair;
     try {
       const protoRes = await fetch(`${API_BASE}/api/validation-plan/start`, {
         method: "POST",
@@ -977,29 +1093,39 @@ function App() {
     }
     const controller = new AbortController();
     let cy;
-    const { bacteria, metabolite } = selectedPair;
-    const params = new URLSearchParams({ bacteria, metabolite, disease, view: "agent" });
+    const {
+      bacteria,
+      metabolite
+    } = selectedPair;
+    const params = new URLSearchParams({
+      bacteria,
+      metabolite,
+      disease,
+      view: "agent"
+    });
     if (currentRunId) params.set("run_id", currentRunId);
     setGraphMessage("Loading agent evidence...");
     async function loadGraph() {
       try {
-        const response = await fetch(`${API_BASE}/api/graph/chain?${params}`, { signal: controller.signal });
-        const graph = await response.json();
-        if (controller.signal.aborted) return;
-        if (!response.ok) throw new Error(parseApiError(graph, "Candidate evidence is unavailable."));
-        if (graph.graph_source !== "agent" || (currentRunId && graph.run_id !== currentRunId)) {
+        let graph = selectedPair.graph;
+        if (!graph) {
+          const response = await fetch(`${API_BASE}/api/graph/chain?${params}`, {
+            signal: controller.signal
+          });
+          graph = await response.json();
+          if (controller.signal.aborted) return;
+          if (!response.ok) throw new Error(parseApiError(graph, "Candidate evidence is unavailable."));
+        }
+        if (graph.graph_source !== "agent" || currentRunId && graph.run_id !== currentRunId) {
           throw new Error("The requested agent graph is unavailable.");
         }
         cy = window.KgEvidence.renderAgentGraph(document.getElementById("kg"), graph);
         window._kgCy = cy;
         setKgPrintImg(cytoscapeToPrintSvgUri(cy) || "");
         if (!graph.edges.length) {
-          setGraphMessage(graph.evidence_status === "unavailable"
-            ? "No relationship evidence was archived for this candidate."
-            : "No supported links were found for this candidate.");
+          setGraphMessage(graph.evidence_status === "unavailable" ? "No relationship evidence was archived for this candidate." : "No supported links were found for this candidate.");
         } else {
-          setGraphMessage(graph.nodes.every(node => node.data.is_core)
-            ? "The available evidence links only the core entities. Select a link to inspect its evidence." : "");
+          setGraphMessage(graph.nodes.every(node => node.data.is_core) ? "The available evidence links only the core entities. Select a link to inspect its evidence." : "");
         }
       } catch (error) {
         if (!controller.signal.aborted) setGraphMessage(error.message || "Unable to load agent evidence.");
@@ -1012,68 +1138,72 @@ function App() {
       if (window._kgCy === cy) window._kgCy = null;
     };
   }, [selectedPair, disease, currentRunId]);
-  return              React.createElement("div", {
+  return React.createElement("div", {
     className: "min-h-screen p-6"
-  },              React.createElement("header", {
+  }, React.createElement("header", {
     className: "mb-6 flex items-center justify-between flex-wrap gap-4"
-  },              React.createElement("div", null,              React.createElement("h1", {
+  }, React.createElement("div", null, React.createElement("h1", {
     className: "text-3xl font-bold text-gray-900"
-  }, "MMSage-Insight"),              React.createElement("p", {
+  }, "MMSage-Insight"), React.createElement("p", {
     className: "text-gray-500"
-  }, "MMSage Signal × Evidence Foundation | ★ = Novel (no triple evidence)")), React.createElement("div", {
+  }, "MMSage Signal \xD7 Evidence Foundation | \u2605 = Novel (no triple evidence)")), React.createElement("div", {
     className: "flex flex-wrap items-center gap-2"
   }, React.createElement("a", {
     href: "/browse",
     className: "inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition shadow-sm"
-  },              React.createElement("svg", {
+  }, React.createElement("svg", {
     className: "w-4 h-4",
     fill: "none",
     stroke: "currentColor",
     viewBox: "0 0 24 24",
     "aria-hidden": "true"
-  },              React.createElement("path", {
+  }, React.createElement("path", {
     strokeLinecap: "round",
     strokeLinejoin: "round",
     strokeWidth: 2,
     d: "M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7c0-2-1-3-3-3H7C5 4 4 5 4 7zm16 0H4m16 4H4m5 4h6"
-  })), "Results Catalog"), currentRunId && defaultRunId && currentRunId !== defaultRunId &&              React.createElement("button", {
+  })), "Results Catalog"), currentRunId && defaultRunId && currentRunId !== defaultRunId && React.createElement("button", {
     onClick: () => {
       updateDashboardUrl("");
-      loadCandidates("").catch(console.error);
+      if (fileRef.current) fileRef.current.value = "";
+      setFileName("");
+      setUploadMsg("");
+      loadCandidates("").catch(error => setUploadMsg(error.message));
     },
     className: "inline-flex items-center gap-2 px-4 py-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 rounded-lg text-sm font-medium transition shadow-sm"
-  }, "View Home Result"))),              React.createElement("div", {
+  }, "Return to IBD dashboard"))), React.createElement("div", {
     className: "mb-6 p-4 bg-gray-50 border border-gray-200 rounded-xl flex items-center gap-4 flex-wrap"
-  },              React.createElement("div", null,              React.createElement("span", {
+  }, React.createElement("div", null, React.createElement("span", {
     className: "text-sm font-medium text-gray-700"
-  }, "Disease:"),              React.createElement("input", {
+  }, "Disease:"), React.createElement("input", {
     value: uploadDisease,
+    disabled: loadingExample,
     onChange: e => setUploadDisease(e.target.value),
     className: "ml-2 border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-32",
     placeholder: "e.g. IBD"
-  })),              React.createElement("div", null,              React.createElement("span", {
+  })), React.createElement("div", null, React.createElement("span", {
     className: "text-sm font-medium text-gray-700"
-  }, "Max PubMed queries:"),              React.createElement("input", {
+  }, "Max PubMed queries:"), React.createElement("input", {
     type: "number",
     min: "1",
     step: "1",
     value: maxQueries,
     onChange: e => setMaxQueries(Number(e.target.value)),
     className: "ml-2 border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-20"
-  })),              React.createElement("div", null,              React.createElement("span", {
+  })), React.createElement("div", null, React.createElement("span", {
     className: "text-sm font-medium text-gray-700"
-  }, "Articles per query:"),              React.createElement("input", {
+  }, "Articles per query:"), React.createElement("input", {
     type: "number",
     min: "1",
     step: "1",
     value: maxArticlesPerQuery,
     onChange: e => setMaxArticlesPerQuery(Number(e.target.value)),
     className: "ml-2 border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-20"
-  })),              React.createElement("div", {
+  })), React.createElement("div", {
     className: "border-l border-gray-300 pl-4"
-  },              React.createElement("span", {
+  }, React.createElement("span", {
     className: "text-sm font-medium text-gray-700"
-  }, "Upload Coordinates CSV:")), React.createElement("div", {
+  }, "Upload ranking CSV")), React.createElement("div", {
     className: "flex items-center gap-2 w-64 max-w-full text-sm text-gray-600"
   }, React.createElement("input", {
     ref: fileRef,
@@ -1083,41 +1213,52 @@ function App() {
     onChange: e => setFileName(e.target.files[0]?.name || "")
   }), React.createElement("button", {
     type: "button",
+    disabled: uploading || loadingExample,
     onClick: () => fileRef.current.click(),
-    "aria-label": "Choose File for Upload Coordinates CSV",
+    "aria-label": "Choose ranking or coordinate CSV",
     "aria-describedby": "coordinates-filename",
     className: "shrink-0 px-4 py-1.5 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
   }, "Choose File"), React.createElement("span", {
-    id: "coordinates-filename", className: "truncate", title: fileName, "aria-live": "polite"
-  }, fileName)), React.createElement("button", {
+    id: "coordinates-filename",
+    className: "truncate",
+    title: fileName,
+    "aria-live": "polite"
+  }, fileName)), React.createElement("div", {
+    className: "inline-flex items-center gap-1"
+  }, React.createElement("button", {
     onClick: handleUpload,
-    disabled: uploading,
+    disabled: uploading || loadingExample,
     className: "px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-medium transition"
-  }, uploading ? "Uploading..." : "Upload & Process"), uploadMsg &&              React.createElement("span", {
+  }, uploading ? "Analyzing…" : "Upload & Analyze"), React.createElement(EvaluationHelp, {
+    onLoadExample: loadEvaluationExample,
+    disabled: uploading || loadingExample
+  })), uploadSummary && React.createElement("p", {
+    className: "basis-full text-sm text-gray-600"
+  }, sourceFile, " \xB7 ", disease, " \xB7 ", uploadSummary.input_rows, " input rows \xB7 ", uploadSummary.unique_pairs, " unique pairs \xB7 ", uploadSummary.analyzed_count, " analyzed (limit ", uploadSummary.limit, ")"), uploadMsg && React.createElement("span", {
     className: "text-sm text-amber-600"
-  }, uploadMsg), currentJobId && uploading &&              React.createElement("span", {
+  }, uploadMsg), currentJobId && uploading && React.createElement("span", {
     className: "text-xs text-gray-400 font-mono"
-  }, "Job: ", currentJobId)),              React.createElement("div", {
+  }, "Job: ", currentJobId)), React.createElement("div", {
     className: "flex flex-col gap-6"
-  },              React.createElement("div", {
+  }, React.createElement("div", {
     className: "grid grid-cols-12 gap-6 items-start"
-  },              React.createElement("div", {
+  }, React.createElement("div", {
     id: "step1-card",
     className: "col-span-12 lg:col-span-8 bg-white rounded-xl p-4 border border-gray-200 shadow-sm flex flex-col"
-  },              React.createElement("h2", {
+  }, React.createElement("h2", {
     className: "text-2xl mb-2 flex items-center gap-2 text-gray-900 font-semibold"
-  }, "Step 1: Signal Discovery",              React.createElement("span", {
+  }, "Step 1: Signal Discovery", React.createElement("span", {
     className: "text-base text-gray-500 font-normal"
-  }, "Click a point to select"),              React.createElement("div", {
+  }, "Click a point to select"), React.createElement("div", {
     className: "ml-auto flex gap-2 font-normal"
-  },              React.createElement("button", {
+  }, React.createElement("button", {
     onClick: () => {
       const plotEl = document.getElementById("main-plot");
       if (plotEl) downloadPlotSvg(plotEl);
     },
     className: "text-xs px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition",
-    title: "Vector SVG — 210×99 mm"
-  }, "Export SVG"),              React.createElement("button", {
+    title: "Vector SVG \u2014 210\xD799 mm"
+  }, "Export SVG"), React.createElement("button", {
     onClick: () => {
       Plotly.downloadImage("main-plot", {
         ...FIGURE.plotPng,
@@ -1126,109 +1267,113 @@ function App() {
     },
     className: "text-xs px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg transition",
     title: "High-resolution raster preview"
-  }, "Export PNG"))),              React.createElement("div", {
+  }, "Export PNG"))), React.createElement("div", {
     id: "main-plot",
     className: "h-[480px] min-h-[480px] shrink-0 screen-only"
-  }), plotPrintImg &&              React.createElement("div", {
+  }), plotPrintImg && React.createElement("div", {
     className: "print-only"
-  },              React.createElement("img", {
+  }, React.createElement("img", {
     src: plotPrintImg,
     alt: "Step 1 Signal Discovery Plot",
     className: "print-figure print-figure--vector print-figure--a4-portrait-third"
-  }))),              React.createElement("div", {
+  }))), React.createElement("div", {
     className: "col-span-12 lg:col-span-4 bg-white rounded-xl p-4 border border-gray-200 shadow-sm flex flex-col"
-  },              React.createElement("h3", {
+  }, React.createElement("h3", {
     className: "text-lg mb-2 text-gray-900"
-  }, "Candidates (", candidateGroups.reduce((total, group) => total + group.items.length, 0), " total)"),              React.createElement("div", {
+  }, "Candidates (", candidateGroups.reduce((total, group) => total + group.items.length, 0), " total)"), withinMicrobe && React.createElement("p", {
+    className: "mb-2 text-sm text-gray-500"
+  }, "Rank within microbe"), React.createElement("div", {
     className: "space-y-2 max-h-[480px] overflow-y-auto pr-1 flex-1"
   }, (() => {
     let rank = 0;
-    return candidateGroups.map(group =>              React.createElement("div", {
+    return candidateGroups.map(group => React.createElement("div", {
       key: group.label || group.quadrant,
       className: "space-y-2"
-    },              React.createElement("div", {
+    }, React.createElement("div", {
       className: "sticky top-0 z-10 bg-white/95 backdrop-blur px-1 py-1 text-xs font-semibold text-gray-600 border-b border-gray-100"
-    }, group.label || QUADRANT_HEADERS[group.quadrant] || `Quadrant ${group.quadrant}`,              React.createElement("span", {
+    }, group.label || QUADRANT_HEADERS[group.quadrant] || `Quadrant ${group.quadrant}`, React.createElement("span", {
       className: "ml-1 font-normal text-gray-400"
     }, "(", group.items.length, ")")), group.items.map(c => {
       rank += 1;
       const isSelected = selectedPair?.bacteria === c.bacteria && selectedPair?.metabolite === c.metabolite;
-      return              React.createElement("div", {
+      return React.createElement("div", {
         key: `${c.bacteria}-${c.metabolite}`,
         onClick: () => setSelectedPair(c),
         className: `p-2 rounded-lg border cursor-pointer transition ${isSelected ? "border-indigo-400 bg-indigo-50" : "border-gray-200 hover:border-gray-400 hover:bg-gray-50"}`
-      },              React.createElement("div", {
+      }, React.createElement("div", {
         className: "flex items-center justify-between"
-      },              React.createElement("div", {
+      }, React.createElement("div", {
         className: "text-sm font-medium text-gray-800 truncate"
-      }, c.metabolite),              React.createElement("span", {
-        className: "text-xs text-gray-400 whitespace-nowrap", title: c.uploaded_rank?.toString()
-      }, candidateRankLabel(c, rank))),              React.createElement("div", {
+      }, c.metabolite), React.createElement("span", {
+        title: c.uploaded_rank?.toString(),
+        className: "text-xs text-gray-400 whitespace-nowrap"
+      }, candidateRankLabel(c, rank))), React.createElement("div", {
         className: "text-xs text-gray-500 flex gap-3 mt-1 flex-wrap"
-      }, group.label && React.createElement("span", null, "Quadrant ", c.quadrant),              React.createElement("span", null, "MMSage: ", c.mmsage_norm.toFixed(3)),              React.createElement("span", null, "bm: ", c.pair_bm_exp ?? 0),              React.createElement("span", null, "md: ", c.pair_md_exp ?? 0),              React.createElement("span", {
+      }, group.label && React.createElement("span", null, "Quadrant ", c.quadrant), React.createElement("span", null, "MMSage: ", c.mmsage_norm.toFixed(3)), React.createElement("span", null, "bm: ", c.pair_bm_exp ?? 0), React.createElement("span", null, "md: ", c.pair_md_exp ?? 0), React.createElement("span", {
         className: `font-medium ${(c.novelty_score ?? 1) >= 1.0 ? "text-amber-500" : "text-emerald-600"}`
       }, (c.novelty_score ?? 1) >= 1.0 ? "★ novel" : "known")));
     })));
-  })()),              React.createElement("button", {
+  })()), React.createElement("button", {
     className: "mt-4 w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white py-2 rounded-lg font-medium shadow-sm transition mt-auto",
     onClick: handleAnalyze,
     disabled: !selectedPair || loading
-  }, loading ? "Generating..." : "Generate Step 3 Protocol"))),              React.createElement("div", {
+  }, loading ? "Generating..." : "Generate Step 3 Protocol"))), React.createElement("div", {
     id: "uncharted-dark-matter",
     className: "col-span-12 bg-gray-50/80 rounded-lg px-3 py-2.5 border border-gray-100"
-  },              React.createElement("div", {
+  }, React.createElement("div", {
     className: "flex flex-wrap items-center gap-x-3 gap-y-1"
-  },              React.createElement("h3", {
+  }, React.createElement("h3", {
     className: "text-xs font-medium text-gray-500"
-  }, "Uncharted Dark Matter",              React.createElement("span", {
+  }, "Uncharted Dark Matter", React.createElement("span", {
     className: "ml-1 text-gray-400"
-  }, "(", unchartedDarkMatter.length, ")")),              React.createElement("span", {
+  }, "(", unchartedDarkMatter.length, ")")), React.createElement("span", {
     className: "text-[11px] text-gray-400"
-  }, "bm = 0, md = 0 · excluded from Step 1 plot"),              React.createElement("details", {
+  }, "bm = 0, md = 0 \xB7 excluded from Step 1 plot"), React.createElement("details", {
     className: "text-[11px] text-gray-400 ml-auto"
-  },              React.createElement("summary", {
+  }, React.createElement("summary", {
     className: "cursor-pointer hover:text-gray-600 select-none list-none [&::-webkit-details-marker]:hidden"
-  }, "Why separate?"),              React.createElement("p", {
+  }, "Why separate?"), React.createElement("p", {
     className: "mt-1.5 text-gray-500 max-w-2xl leading-relaxed"
-  }, "No PubMed evidence for microbe–metabolite (bm) or metabolite–disease (md) links; zero-literature pairs are omitted from the scatter plot but remain high-priority MMSage signals."))), unchartedDarkMatter.length === 0 ?              React.createElement("p", {
+  }, "No PubMed evidence for microbe\u2013metabolite (bm) or metabolite\u2013disease (md) links; zero-literature pairs are omitted from the scatter plot but remain high-priority MMSage signals."))), unchartedDarkMatter.length === 0 ? React.createElement("p", {
     className: "text-xs text-gray-400 mt-2"
-  }, "No uncharted candidates in this run.") :              React.createElement(React.Fragment, null,              React.createElement("div", {
+  }, "No uncharted candidates in this run.") : React.createElement(React.Fragment, null, React.createElement("div", {
     className: "uncharted-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5 mt-2"
   }, (unchartedExpanded ? unchartedDarkMatter : unchartedDarkMatter.slice(0, UNCHARTED_PREVIEW)).map((c, i) => {
     const isSelected = selectedPair?.bacteria === c.bacteria && selectedPair?.metabolite === c.metabolite;
-    return              React.createElement("div", {
+    return React.createElement("div", {
       key: `${c.bacteria}-${c.metabolite}`,
       onClick: () => setSelectedPair(c),
       className: `px-2 py-1.5 rounded border cursor-pointer transition text-xs ${isSelected ? "border-gray-400 bg-white" : "border-gray-200 bg-white/60 hover:border-gray-300 hover:bg-white"}`
-    },              React.createElement("div", {
+    }, React.createElement("div", {
       className: "flex items-center justify-between gap-2"
-    },              React.createElement("div", {
+    }, React.createElement("div", {
       className: "font-medium text-gray-700 truncate"
-    }, c.metabolite),              React.createElement("span", {
-      className: "text-gray-400 shrink-0", title: c.uploaded_rank?.toString()
-    }, candidateRankLabel(c, i + 1))),              React.createElement("div", {
+    }, c.metabolite), React.createElement("span", {
+      title: c.uploaded_rank?.toString(),
+      className: "text-gray-400 shrink-0"
+    }, candidateRankLabel(c, i + 1))), React.createElement("div", {
       className: "text-gray-400 flex gap-2 mt-0.5"
-    },              React.createElement("span", null, "MMSage ", c.mmsage_norm.toFixed(3)),              React.createElement("span", null, "uncharted")));
-  })), unchartedDarkMatter.length > UNCHARTED_PREVIEW &&              React.createElement("button", {
+    }, React.createElement("span", null, "MMSage ", c.mmsage_norm.toFixed(3)), React.createElement("span", null, "uncharted")));
+  })), unchartedDarkMatter.length > UNCHARTED_PREVIEW && React.createElement("button", {
     type: "button",
     onClick: () => setUnchartedExpanded(v => !v),
     className: "mt-2 text-[11px] text-gray-400 hover:text-gray-600 transition"
-  }, unchartedExpanded ? "Show less" : `Show all ${unchartedDarkMatter.length} uncharted pairs`))),              React.createElement("div", {
+  }, unchartedExpanded ? "Show less" : `Show all ${unchartedDarkMatter.length} uncharted pairs`))), React.createElement("div", {
     className: "grid grid-cols-12 gap-6"
-  },              React.createElement("div", {
+  }, React.createElement("div", {
     id: "step2-card",
     className: "min-w-0 col-span-12 lg:col-span-8 bg-white rounded-xl p-4 border border-gray-200 shadow-sm flex flex-col"
-  },              React.createElement("div", {
+  }, React.createElement("div", {
     className: "flex items-center justify-between mb-2"
-  },              React.createElement("h2", {
+  }, React.createElement("h2", {
     className: "text-2xl text-gray-900 font-semibold"
-  }, "Step 2: Knowledge Graph"),              React.createElement("div", {
+  }, "Step 2: Knowledge Graph"), React.createElement("div", {
     className: "flex gap-2"
-  },              React.createElement("button", {
+  }, React.createElement("button", {
     onClick: () => downloadKgSvg(window._kgCy),
     className: "text-xs px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition",
     title: "Vector SVG for journal figures"
-  }, "Export SVG"),              React.createElement("button", {
+  }, "Export SVG"), React.createElement("button", {
     onClick: () => {
       if (!window._kgCy) return;
       const png = window._kgCy.png({
@@ -1245,256 +1390,261 @@ function App() {
     },
     className: "text-xs px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg transition",
     title: "Raster fallback if SVG preview differs"
-  }, "Export PNG"))),              React.createElement("div", {
+  }, "Export PNG"))), React.createElement("div", {
     id: "kg",
     className: "flex-1 min-h-[480px] bg-gray-50 rounded-lg border border-gray-100 screen-only"
-  }),              React.createElement("div", {
+  }), React.createElement("div", {
     className: "mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs text-gray-600 screen-only"
-  },              React.createElement("div", {
+  }, React.createElement("div", {
     className: "flex items-center gap-2"
-  },              React.createElement("span", {
+  }, React.createElement("span", {
     className: "inline-block w-3.5 h-3.5 rounded-full bg-blue-500 border border-white shadow-sm"
-  }),              React.createElement("span", null, "Microbe")),              React.createElement("div", {
+  }), React.createElement("span", null, "Microbe")), React.createElement("div", {
     className: "flex items-center gap-2"
-  },              React.createElement("span", {
+  }, React.createElement("span", {
     className: "inline-block w-4 h-3 rounded-sm bg-amber-500 border border-white shadow-sm"
-  }),              React.createElement("span", null, "Metabolite")),              React.createElement("div", {
+  }), React.createElement("span", null, "Metabolite")), React.createElement("div", {
     className: "flex items-center gap-2"
-  },              React.createElement("span", {
+  }, React.createElement("span", {
     className: "inline-block w-3.5 h-3.5 bg-emerald-500 border border-white shadow-sm rotate-45"
-  }),              React.createElement("span", null, "Pathway")),              React.createElement("div", {
+  }), React.createElement("span", null, "Pathway")), React.createElement("div", {
     className: "flex items-center gap-2"
-  },              React.createElement("span", {
+  }, React.createElement("span", {
     className: "inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[9px] leading-none shadow-sm",
     style: {
       clipPath: "polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%)"
     }
-  }),              React.createElement("span", null, "Disease")),              React.createElement("div", {
+  }), React.createElement("span", null, "Disease")), React.createElement("div", {
     className: "flex items-center gap-2"
-  },              React.createElement("span", {
+  }, React.createElement("span", {
     className: "inline-block w-0 h-0 border-l-[8px] border-r-[8px] border-b-[14px] border-l-transparent border-r-transparent border-b-orange-500 drop-shadow-sm"
-  }),              React.createElement("span", null, "Enzyme")),              React.createElement("div", {
+  }), React.createElement("span", null, "Enzyme")), React.createElement("div", {
     className: "flex items-center gap-2"
-  },              React.createElement("span", {
+  }, React.createElement("span", {
     className: "inline-block w-0 h-0 border-l-[8px] border-r-[8px] border-t-[14px] border-l-transparent border-r-transparent border-t-cyan-500 drop-shadow-sm"
-  }),              React.createElement("span", null, "Receptor")),              React.createElement("div", {
+  }), React.createElement("span", null, "Receptor")), React.createElement("div", {
     className: "flex items-center gap-2"
-  },              React.createElement("span", {
+  }, React.createElement("span", {
     className: "inline-block w-3.5 h-3.5 rounded-full bg-gray-400 border border-white shadow-sm"
-  }),              React.createElement("span", null, "Unknown"))),              React.createElement("p", {
-    className: "text-sm text-gray-600 mt-2 screen-only", role: "status"
-  }, graphMessage || "Select a node or link to inspect its evidence."),              React.createElement("div", {
+  }), React.createElement("span", null, "Unknown"))), React.createElement("p", {
+    className: "text-sm text-gray-600 mt-2 screen-only",
+    role: "status"
+  }, graphMessage || "Select a node or link to inspect its evidence."), React.createElement("div", {
     id: "kg-evidence-panel",
     className: "hidden mt-4 border-t border-gray-100 pt-4 screen-only"
-  },              React.createElement("h3", {
+  }, React.createElement("h3", {
     className: "text-sm font-semibold text-gray-800 mb-2"
-  }, "Relationship evidence"),              React.createElement("div", {
+  }, "Relationship evidence"), React.createElement("div", {
     id: "kg-evidence-content",
     className: "text-sm max-h-[360px] overflow-y-auto pr-1"
-  })), kgPrintImg &&              React.createElement("div", {
+  })), kgPrintImg && React.createElement("div", {
     className: "print-only"
-  },              React.createElement("img", {
+  }, React.createElement("img", {
     src: kgPrintImg,
     alt: "Step 2 Knowledge Graph",
     className: "print-figure print-figure--vector print-figure--a4-landscape"
-  }))),              React.createElement("div", {
+  }))), React.createElement("div", {
     className: "col-span-12 lg:col-span-4 bg-white rounded-xl p-4 border border-gray-200 shadow-sm flex flex-col"
-  },              React.createElement("h2", {
+  }, React.createElement("h2", {
     className: "text-xl mb-2 text-gray-900"
-  }, "Analysis"), selectedPair ?              React.createElement("div", {
+  }, "Analysis"), selectedPair ? React.createElement("div", {
     className: "flex-1 flex flex-col space-y-4"
-  },              React.createElement("div", {
+  }, React.createElement("div", {
     className: "text-sm"
-  },              React.createElement("div", {
+  }, React.createElement("p", {
+    className: "mb-3 font-medium text-gray-800"
+  }, selectedPair.bacteria.replace(/_/g, " "), " \xB7 ", selectedPair.metabolite, " \xB7 ", disease), Number.isFinite(selectedPair.uploaded_rank) && React.createElement("dl", {
+    className: "mb-3 grid grid-cols-2 gap-x-2 gap-y-1"
+  }, React.createElement("dt", null, withinMicrobe ? "Rank within microbe" : "Uploaded rank"), React.createElement("dd", null, selectedPair.uploaded_rank), withinMicrobe && React.createElement(React.Fragment, null, React.createElement("dt", null, "Spearman \u03C1"), React.createElement("dd", null, selectedPair.correlation ?? "—"), React.createElement("dt", null, "P value"), React.createElement("dd", null, selectedPair.p_value ?? "—"), React.createElement("dt", null, "Significant"), React.createElement("dd", null, selectedPair.significant == null ? "—" : selectedPair.significant ? "Yes" : "No"))), React.createElement("div", {
     className: "flex justify-between mb-2"
-  },              React.createElement("span", {
+  }, React.createElement("span", {
     className: "text-gray-500"
-  }, "MMSage Signal:"),              React.createElement("span", {
+  }, withinMicrobe ? "Rank-derived signal:" : "MMSage Signal:"), React.createElement("span", {
     className: "font-mono text-gray-800"
-  }, selectedPair.mmsage_norm.toFixed(3))),              React.createElement("div", {
+  }, selectedPair.mmsage_norm.toFixed(3))), React.createElement("div", {
     className: "flex justify-between mb-2"
-  },              React.createElement("span", {
+  }, React.createElement("span", {
     className: "text-gray-500"
-  }, "Microbe-Metabolite (bm):"),              React.createElement("span", {
+  }, "Microbe-Metabolite (bm):"), React.createElement("span", {
     className: "font-mono text-gray-800"
-  }, selectedPair.pair_bm_exp ?? 0, " papers")),              React.createElement("div", {
+  }, selectedPair.pair_bm_exp ?? 0, " papers")), React.createElement("div", {
     className: "flex justify-between mb-2"
-  },              React.createElement("span", {
+  }, React.createElement("span", {
     className: "text-gray-500"
-  }, "Metabolite-Disease (md):"),              React.createElement("span", {
+  }, "Metabolite-Disease (md):"), React.createElement("span", {
     className: "font-mono text-gray-800"
-  }, selectedPair.pair_md_exp ?? 0, " papers")),              React.createElement("div", {
+  }, selectedPair.pair_md_exp ?? 0, " papers")), React.createElement("div", {
     className: "flex justify-between font-semibold border-t border-gray-200 pt-2 mt-2"
-  },              React.createElement("span", {
+  }, React.createElement("span", {
     className: "text-gray-700"
-  }, "Composite Score:"),              React.createElement("span", {
+  }, "Composite Score:"), React.createElement("span", {
     className: "font-mono text-indigo-600"
-  }, (selectedPair.composite_score ?? 0).toFixed(2))),              React.createElement("div", {
+  }, (selectedPair.composite_score ?? 0).toFixed(2))), React.createElement("div", {
     className: "flex justify-between mt-2"
-  },              React.createElement("span", {
+  }, React.createElement("span", {
     className: "text-gray-500"
-  }, "Novelty:"),              React.createElement("span", {
+  }, "Novelty:"), React.createElement("span", {
     className: "font-mono",
     style: {
       color: (selectedPair.novelty_score ?? 1) >= 1.0 ? "#d97706" : "#059669"
     }
-  }, (selectedPair.novelty_score ?? 0).toFixed(3), " ", (selectedPair.novelty_score ?? 1) >= 1.0 ? "★ novel" : "known")))) :              React.createElement("div", {
+  }, (selectedPair.novelty_score ?? 0).toFixed(3), " ", (selectedPair.novelty_score ?? 1) >= 1.0 ? "★ novel" : "known")))) : React.createElement("div", {
     className: "text-gray-400 text-center flex-1 flex items-center justify-center"
-  }, "Select a candidate to view analysis")))),              React.createElement("div", {
+  }, "Select a candidate to view analysis")))), React.createElement("div", {
     id: "step3-card",
     className: "mt-6 bg-white rounded-xl p-5 border border-gray-200 shadow-sm"
-  },              React.createElement("div", {
+  }, React.createElement("div", {
     className: "border-b border-gray-100 pb-2 mb-3"
-  },              React.createElement("h2", {
+  }, React.createElement("h2", {
     className: "text-xl text-gray-900 font-semibold"
-  }, "Step 3: Evidence Gap and Follow-up Plan"),              React.createElement("p", {
+  }, "Step 3: Evidence Gap and Follow-up Plan"), React.createElement("p", {
     className: "mt-1 text-sm text-gray-500"
-  }, "First identify what is already known and what remains unknown, then propose the most useful follow-up experiment(s).")), loading &&              React.createElement("p", {
+  }, "First identify what is already known and what remains unknown, then propose the most useful follow-up experiment(s).")), loading && React.createElement("p", {
     className: "text-sm text-indigo-600 mb-2"
-  }, "Generating validation protocol..."), protocolError &&              React.createElement("div", {
+  }, "Generating validation protocol..."), protocolError && React.createElement("div", {
     className: "mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
-  }, protocolError), (loading || protocol) &&              React.createElement("pre", {
+  }, protocolError), (loading || protocol) && React.createElement("pre", {
     className: "whitespace-pre-wrap text-base leading-relaxed text-gray-800 max-h-[600px] overflow-y-auto bg-gray-50/50 p-5 rounded-lg font-serif"
-  }, loading ? "Please wait while the validation protocol is being generated..." : protocol), validationPlanStatus && (validationPlanLoading || validationPlanStatus.status === "error") &&              React.createElement("div", {
+  }, loading ? "Please wait while the validation protocol is being generated..." : protocol), validationPlanStatus && (validationPlanLoading || validationPlanStatus.status === "error") && React.createElement("div", {
     className: "mt-4 rounded-xl border border-indigo-200 bg-indigo-50/70 p-4"
-  },              React.createElement("div", {
+  }, React.createElement("div", {
     className: "flex items-start justify-between gap-3 flex-wrap"
-  },              React.createElement("div", null,              React.createElement("h3", {
+  }, React.createElement("div", null, React.createElement("h3", {
     className: "text-sm font-semibold text-indigo-900"
-  }, validationPlanStatus?.status === "error" ? "Step 3 Generation Failed" : "Step 3 Generation Running"),              React.createElement("p", {
+  }, validationPlanStatus?.status === "error" ? "Step 3 Generation Failed" : "Step 3 Generation Running"), React.createElement("p", {
     className: "mt-1 text-sm text-indigo-800"
-  }, validationPlanStatus?.current_message || "Generating Step 3 evidence-gap summary..."), validationPlanJobId &&              React.createElement("p", {
+  }, validationPlanStatus?.current_message || "Generating Step 3 evidence-gap summary..."), validationPlanJobId && React.createElement("p", {
     className: "mt-1 text-xs text-indigo-600 font-mono"
-  }, "Job: ", validationPlanJobId)),              React.createElement("div", {
+  }, "Job: ", validationPlanJobId)), React.createElement("div", {
     className: "min-w-[120px] text-right"
-  },              React.createElement("div", {
+  }, React.createElement("div", {
     className: "text-lg font-semibold text-indigo-900"
-  }, validationPlanStatus?.progress_percent ?? 0, "%"),              React.createElement("div", {
+  }, validationPlanStatus?.progress_percent ?? 0, "%"), React.createElement("div", {
     className: "text-xs text-indigo-700"
-  }, formatValidationStage(validationPlanStatus?.current_stage)))),              React.createElement("div", {
+  }, formatValidationStage(validationPlanStatus?.current_stage)))), React.createElement("div", {
     className: "mt-3 h-2 w-full overflow-hidden rounded-full bg-indigo-100"
-  },              React.createElement("div", {
+  }, React.createElement("div", {
     className: "h-full rounded-full bg-indigo-600 transition-all",
     style: {
       width: `${Math.max(6, validationPlanStatus?.progress_percent ?? 6)}%`
     }
-  })),              React.createElement("div", {
+  })), React.createElement("div", {
     className: "mt-4 grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]"
-  },              React.createElement("div", {
+  }, React.createElement("div", {
     className: "rounded-lg border border-indigo-200 bg-white/80 p-3"
-  },              React.createElement("div", {
+  }, React.createElement("div", {
     className: "text-xs font-semibold uppercase tracking-wide text-indigo-800"
-  }, "Current Stage"),              React.createElement("div", {
+  }, "Current Stage"), React.createElement("div", {
     className: "mt-2 text-sm font-medium text-gray-900"
-  }, formatValidationStage(validationPlanStatus?.current_stage)), validationPlanStatus?.candidate?.bacteria &&              React.createElement("div", {
+  }, formatValidationStage(validationPlanStatus?.current_stage)), validationPlanStatus?.candidate?.bacteria && React.createElement("div", {
     className: "mt-3 text-xs text-gray-600 space-y-1"
-  },              React.createElement("div", null, "Microbe: ", validationPlanStatus.candidate.bacteria),              React.createElement("div", null, "Metabolite: ", validationPlanStatus.candidate.metabolite),              React.createElement("div", null, "Disease: ", validationPlanStatus.candidate.disease))),              React.createElement("div", {
+  }, React.createElement("div", null, "Microbe: ", validationPlanStatus.candidate.bacteria), React.createElement("div", null, "Metabolite: ", validationPlanStatus.candidate.metabolite), React.createElement("div", null, "Disease: ", validationPlanStatus.candidate.disease))), React.createElement("div", {
     className: "rounded-lg border border-indigo-200 bg-white/80 p-3"
-  },              React.createElement("div", {
+  }, React.createElement("div", {
     className: "text-xs font-semibold uppercase tracking-wide text-indigo-800"
-  }, "Live Logs"), Array.isArray(validationPlanStatus?.logs) && validationPlanStatus.logs.length > 0 ?              React.createElement("div", {
+  }, "Live Logs"), Array.isArray(validationPlanStatus?.logs) && validationPlanStatus.logs.length > 0 ? React.createElement("div", {
     className: "mt-2 space-y-2 max-h-56 overflow-y-auto pr-1"
-  }, validationPlanStatus.logs.slice(-8).reverse().map((item, idx) =>              React.createElement("div", {
+  }, validationPlanStatus.logs.slice(-8).reverse().map((item, idx) => React.createElement("div", {
     key: `validation-log-${idx}`,
     className: "rounded-lg border border-gray-200 bg-gray-50/80 p-2.5"
-  },              React.createElement("div", {
+  }, React.createElement("div", {
     className: "flex items-center gap-2 flex-wrap"
-  },              React.createElement("span", {
+  }, React.createElement("span", {
     className: "text-xs font-semibold text-gray-900"
-  }, formatValidationStage(item.stage)),              React.createElement("span", {
+  }, formatValidationStage(item.stage)), React.createElement("span", {
     className: "text-xs text-gray-500"
-  }, item.progress_percent ?? 0, "%"), item.timestamp &&              React.createElement("span", {
+  }, item.progress_percent ?? 0, "%"), item.timestamp && React.createElement("span", {
     className: "text-xs text-gray-400"
-  }, new Date(item.timestamp).toLocaleTimeString("en-US"))),              React.createElement("p", {
+  }, new Date(item.timestamp).toLocaleTimeString("en-US"))), React.createElement("p", {
     className: "mt-1 text-sm text-gray-700"
-  }, item.message), item.extra && Object.keys(item.extra).length > 0 &&              React.createElement("p", {
+  }, item.message), item.extra && Object.keys(item.extra).length > 0 && React.createElement("p", {
     className: "mt-1 text-xs text-gray-500"
-  }, Object.entries(item.extra).map(([k, v]) => `${k}: ${v}`).join(" | "))))) :              React.createElement("p", {
+  }, Object.entries(item.extra).map(([k, v]) => `${k}: ${v}`).join(" | "))))) : React.createElement("p", {
     className: "mt-2 text-sm text-gray-500"
-  }, "Waiting for backend logs...")))), validationPlanError &&              React.createElement("div", {
+  }, "Waiting for backend logs...")))), validationPlanError && React.createElement("div", {
     className: "mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
-  }, validationPlanError),              React.createElement("div", {
+  }, validationPlanError), React.createElement("div", {
     className: "mt-6 bg-slate-50/80 rounded-xl p-5 border border-slate-200 shadow-sm"
-  },              React.createElement("div", {
+  }, React.createElement("div", {
     className: "border-b border-slate-200 pb-2 mb-3"
-  },              React.createElement("h2", {
+  }, React.createElement("h2", {
     className: "text-xl text-slate-900 font-semibold"
-  }, "Specific Experiment Question"),              React.createElement("p", {
+  }, "Specific Experiment Question"), React.createElement("p", {
     className: "mt-1 text-sm text-slate-600"
-  }, "Use this independent module to ask about any concrete experiment, even if it is not related to the selected candidate above. Provide the claim, model system, or constraints if available.")),              React.createElement("div", {
+  }, "Use this independent module to ask about any concrete experiment, even if it is not related to the selected candidate above. Provide the claim, model system, or constraints if available.")), React.createElement("div", {
     className: "grid gap-3"
-  },              React.createElement("div", null,              React.createElement("label", {
+  }, React.createElement("div", null, React.createElement("label", {
     htmlFor: "standalone-validation-question",
     className: "block text-xs font-semibold uppercase tracking-wide text-slate-600"
-  }, "EXPERIMENT QUESTION"),              React.createElement("textarea", {
+  }, "EXPERIMENT QUESTION"), React.createElement("textarea", {
     id: "standalone-validation-question",
     value: questionPlanResearchQuestion,
     onChange: e => setQuestionPlanResearchQuestion(e.target.value),
     placeholder: "Example: How should we validate whether metabolite X suppresses epithelial inflammation in Caco-2 cells or intestinal organoids? Include rationale, groups, controls, readouts, expected outcomes, and decision rules.",
     className: "mt-1 min-h-[96px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
-  })),              React.createElement("div", null,              React.createElement("label", {
+  })), React.createElement("div", null, React.createElement("label", {
     htmlFor: "standalone-validation-constraints",
     className: "block text-xs font-semibold uppercase tracking-wide text-slate-600"
-  }, "OPTIONAL CONTEXT / CONSTRAINTS"),              React.createElement("textarea", {
+  }, "OPTIONAL CONTEXT / CONSTRAINTS"), React.createElement("textarea", {
     id: "standalone-validation-constraints",
     value: questionPlanPromptConstraints,
     onChange: e => setQuestionPlanPromptConstraints(e.target.value),
     placeholder: "Example: Keep only the most basic in vitro and in vivo experiments. Avoid mechanism-heavy studies and use literature-supported conditions when available.",
     className: "mt-1 min-h-[84px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
-  })),              React.createElement("div", {
+  })), React.createElement("div", {
     className: "flex items-center justify-end"
-  },              React.createElement("button", {
+  }, React.createElement("button", {
     onClick: handleGenerateValidationPlan,
     disabled: questionPlanLoading || !questionPlanResearchQuestion.trim(),
     className: `px-4 py-2 rounded-lg text-sm font-medium transition ${!questionPlanLoading && questionPlanResearchQuestion.trim() ? "bg-slate-800 hover:bg-slate-900 text-white" : "bg-slate-200 text-slate-400 cursor-not-allowed"}`
-  }, questionPlanLoading ? "Generating..." : "Generate Standalone Protocol"))), questionPlanStatus && (questionPlanLoading || questionPlanStatus.status === "error") &&              React.createElement("div", {
+  }, questionPlanLoading ? "Generating..." : "Generate Standalone Protocol"))), questionPlanStatus && (questionPlanLoading || questionPlanStatus.status === "error") && React.createElement("div", {
     className: "mt-4 rounded-xl border border-slate-200 bg-white/80 p-4"
-  },              React.createElement("div", {
+  }, React.createElement("div", {
     className: "flex items-start justify-between gap-3 flex-wrap"
-  },              React.createElement("div", null,              React.createElement("h3", {
+  }, React.createElement("div", null, React.createElement("h3", {
     className: "text-sm font-semibold text-slate-900"
-  }, questionPlanStatus?.status === "error" ? "Standalone Generation Failed" : "Standalone Generation Running"),              React.createElement("p", {
+  }, questionPlanStatus?.status === "error" ? "Standalone Generation Failed" : "Standalone Generation Running"), React.createElement("p", {
     className: "mt-1 text-sm text-slate-700"
-  }, questionPlanStatus?.current_message || "Generating a standalone evidence-driven protocol..."), questionPlanJobId &&              React.createElement("p", {
+  }, questionPlanStatus?.current_message || "Generating a standalone evidence-driven protocol..."), questionPlanJobId && React.createElement("p", {
     className: "mt-1 text-xs text-slate-500 font-mono"
-  }, "Job: ", questionPlanJobId)),              React.createElement("div", {
+  }, "Job: ", questionPlanJobId)), React.createElement("div", {
     className: "min-w-[120px] text-right"
-  },              React.createElement("div", {
+  }, React.createElement("div", {
     className: "text-lg font-semibold text-slate-900"
-  }, questionPlanStatus?.progress_percent ?? 0, "%"),              React.createElement("div", {
+  }, questionPlanStatus?.progress_percent ?? 0, "%"), React.createElement("div", {
     className: "text-xs text-slate-600"
-  }, formatValidationStage(questionPlanStatus?.current_stage)))),              React.createElement("div", {
+  }, formatValidationStage(questionPlanStatus?.current_stage)))), React.createElement("div", {
     className: "mt-3 h-2 w-full overflow-hidden rounded-full bg-slate-100"
-  },              React.createElement("div", {
+  }, React.createElement("div", {
     className: "h-full rounded-full bg-slate-700 transition-all",
     style: {
       width: `${Math.max(6, questionPlanStatus?.progress_percent ?? 6)}%`
     }
-  })), Array.isArray(questionPlanStatus?.logs) && questionPlanStatus.logs.length > 0 ?              React.createElement("div", {
+  })), Array.isArray(questionPlanStatus?.logs) && questionPlanStatus.logs.length > 0 ? React.createElement("div", {
     className: "mt-3 space-y-2 max-h-56 overflow-y-auto pr-1"
-  }, questionPlanStatus.logs.slice(-8).reverse().map((item, idx) =>              React.createElement("div", {
+  }, questionPlanStatus.logs.slice(-8).reverse().map((item, idx) => React.createElement("div", {
     key: `question-log-${idx}`,
     className: "rounded-lg border border-slate-200 bg-slate-50 p-2.5"
-  },              React.createElement("div", {
+  }, React.createElement("div", {
     className: "flex items-center gap-2 flex-wrap"
-  },              React.createElement("span", {
+  }, React.createElement("span", {
     className: "text-xs font-semibold text-slate-900"
-  }, formatValidationStage(item.stage)),              React.createElement("span", {
+  }, formatValidationStage(item.stage)), React.createElement("span", {
     className: "text-xs text-slate-500"
-  }, item.progress_percent ?? 0, "%"), item.timestamp &&              React.createElement("span", {
+  }, item.progress_percent ?? 0, "%"), item.timestamp && React.createElement("span", {
     className: "text-xs text-slate-400"
-  }, new Date(item.timestamp).toLocaleTimeString("en-US"))),              React.createElement("p", {
+  }, new Date(item.timestamp).toLocaleTimeString("en-US"))), React.createElement("p", {
     className: "mt-1 text-sm text-slate-700"
-  }, item.message), item.extra && Object.keys(item.extra).length > 0 &&              React.createElement("p", {
+  }, item.message), item.extra && Object.keys(item.extra).length > 0 && React.createElement("p", {
     className: "mt-1 text-xs text-slate-500"
-  }, Object.entries(item.extra).map(([k, v]) => `${k}: ${v}`).join(" | "))))) :              React.createElement("p", {
+  }, Object.entries(item.extra).map(([k, v]) => `${k}: ${v}`).join(" | "))))) : React.createElement("p", {
     className: "mt-3 text-sm text-slate-500"
-  }, "Waiting for backend logs...")), questionPlanError &&              React.createElement("div", {
+  }, "Waiting for backend logs...")), questionPlanError && React.createElement("div", {
     className: "mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
-  }, questionPlanError), questionPlan &&              React.createElement("pre", {
+  }, questionPlanError), questionPlan && React.createElement("pre", {
     className: "mt-4 whitespace-pre-wrap text-base leading-relaxed text-slate-800 max-h-[720px] overflow-y-auto rounded-lg bg-white p-5 font-serif"
-  }, questionPlan.validation_protocol_text || "Standalone validation protocol text was not returned."))),              React.createElement("footer", {
+  }, questionPlan.validation_protocol_text || "Standalone validation protocol text was not returned."))), React.createElement("footer", {
     className: "mt-8 text-center text-gray-400 text-sm"
-  }, "MMSage-Insight | X: MMSage Signal | Y: Evidence Foundation (bm_exp + md_exp) | ★ = Novel (chain_novelty=1, no triple experimental co-occurrence) | Composite = MMSage × (1+log₂(1+bm)) × (1+log₂(1+md))"));
+  }, "MMSage-Insight | X: MMSage Signal | Y: Evidence Foundation (bm_exp + md_exp) | \u2605 = Novel (chain_novelty=1, no triple experimental co-occurrence) | Composite = MMSage \xD7 (1+log\u2082(1+bm)) \xD7 (1+log\u2082(1+md))"));
 }
-ReactDOM.createRoot(document.getElementById("root")).render(             React.createElement(App, null));
+ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App, null));

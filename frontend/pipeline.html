@@ -3,127 +3,303 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pipeline Control - MMSage x Chain Novelty</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Correlation ranking - MMSage x Chain Novelty</title>
+    <script src="/static/vendor/tailwind.js"></script>
+    <style>
+        html { scrollbar-gutter: stable; }
+        .ranking-workspace { display: grid; gap: clamp(1rem, 2vw, 2rem); }
+        .ranking-panel {
+            min-width: 0; padding: clamp(1.25rem, 2.2vw, 2rem);
+            background: white; border: 1px solid #dfe4ed; border-radius: .875rem;
+            box-shadow: 0 2px 6px rgb(15 23 42 / 5%);
+        }
+        .upload-fields { display: grid; gap: 1.25rem; }
+        .file-row {
+            display: flex; align-items: center; gap: .75rem; min-height: 3.25rem; margin-top: .5rem;
+            padding: .4rem .625rem; border: 1px solid #dbe2eb; border-radius: .5rem;
+            background: #f8fafc;
+        }
+        .parameter-fields { display: grid; gap: 1.25rem; margin-top: 1.5rem; }
+        .field-label { min-width: 0; font-size: .9375rem; font-weight: 500; color: #334155; }
+        .parameter-fields input { font-weight: 400; }
+        .result-table { font-variant-numeric: tabular-nums; }
+        .result-table td, .result-table th { padding: .7rem .55rem; }
+        .result-table th { font-weight: 600; color: #475569; }
+        .result-table td:nth-child(2), .result-table td:nth-child(3) { overflow-wrap: anywhere; }
+        .result-table td:last-child, .result-table td:nth-last-child(2) { white-space: nowrap; }
+        [hidden] { display: none !important; }
+        .ranking-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+        .ranking-steps li { position: relative; min-width: 0; }
+        .step-dot {
+            display: grid; place-items: center; width: 2.25rem; height: 2.25rem;
+            border-radius: 50%; background: #e2e8f0; color: #475569;
+            font-size: .875rem; font-weight: 600;
+        }
+        .step-line {
+            position: absolute; height: 2px; top: 1.125rem; left: 2.7rem; right: .45rem;
+            background: #e2e8f0;
+        }
+        .step-label { display: block; margin-top: .625rem; padding-right: .4rem; font-size: .8125rem; line-height: 1.2rem; color: #475569; }
+        .ranking-steps [data-state="active"] .step-dot { background: #4f46e5; color: white; }
+        .ranking-steps [data-state="active"] .step-label { color: #4338ca; }
+        .ranking-steps [data-state="done"] .step-dot { background: #047857; color: white; }
+        .ranking-steps [data-state="done"] .step-line { background: #6ee7b7; }
+        .ranking-steps [data-state="error"] .step-dot { background: #b91c1c; color: white; }
+        #log-output {
+            height: clamp(9rem, 20vh, 13rem); overflow: auto; white-space: pre-wrap;
+            overflow-wrap: anywhere; scrollbar-gutter: stable; tab-size: 4;
+        }
+        @media (min-width: 560px) {
+            .parameter-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; }
+        }
+        @media (min-width: 900px) {
+            .ranking-workspace { grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); }
+            #log-output { height: clamp(12rem, 24vh, 16rem); }
+        }
+    </style>
 </head>
 <body class="bg-gray-100 min-h-screen">
     <nav class="bg-indigo-800 shadow-lg">
         <div class="max-w-7xl mx-auto px-4">
-            <div class="flex items-center justify-between h-16">
-                <div class="flex items-center space-x-4">
-                    <h1 class="text-white text-lg font-bold">MMSage x Chain Novelty</h1>
-                    <a href="/" class="px-4 py-2 text-sm font-medium rounded-md text-indigo-200 hover:bg-indigo-600">Dashboard</a>
-                    <a href="/pipeline" class="px-4 py-2 text-sm font-medium rounded-md bg-indigo-700 text-white">Pipeline</a>
-                    <a href="/evidence" class="px-4 py-2 text-sm font-medium rounded-md text-indigo-200 hover:bg-indigo-600">Evidence</a>
-                    <a href="/graph" class="px-4 py-2 text-sm font-medium rounded-md text-indigo-200 hover:bg-indigo-600">KG Explorer</a>
+            <div class="flex items-center justify-between flex-wrap py-3 min-h-16">
+                <div class="flex items-center flex-wrap gap-1 sm:gap-3">
+                    <a href="/correlation-ranking" aria-current="page" class="px-4 py-2 text-sm font-medium rounded-md bg-indigo-700 text-white">Correlation ranking</a>
+                    <a href="/candidate-evaluation" class="px-4 py-2 text-sm font-medium rounded-md text-indigo-200 hover:bg-indigo-600">Candidate evaluation</a>
                 </div>
             </div>
         </div>
     </nav>
 
-    <main class="max-w-4xl mx-auto px-4 py-6">
-        <div class="bg-white rounded-lg shadow p-6 mb-6">
-            <h2 class="text-lg font-semibold mb-1">Correlation ranking</h2>
-            <p class="text-sm text-gray-500 mb-4">Upload two abundance matrices to generate an independent ranked CSV using all input microbes and metabolites.</p>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div class="block text-sm font-medium text-gray-700">Microbes abundance matrix
-                    <span class="mt-2 flex items-center gap-3 w-full border rounded px-3 py-2">
-                        <button type="button" onclick="document.getElementById('cor-microbes').click()" aria-label="Choose File for microbes abundance matrix" aria-describedby="cor-microbes-name" class="cursor-pointer px-3 py-1 border rounded bg-gray-50 hover:bg-gray-100">Choose File</button>
-                        <span id="cor-microbes-name" aria-live="polite" class="text-gray-500">No file chosen</span>
-                        <input id="cor-microbes" type="file" accept=".csv,.tsv,.txt" hidden>
-                    </span>
-                </div>
-                <div class="block text-sm font-medium text-gray-700">Metabolites abundance matrix
-                    <span class="mt-2 flex items-center gap-3 w-full border rounded px-3 py-2">
-                        <button type="button" onclick="document.getElementById('cor-metabolites').click()" aria-label="Choose File for metabolites abundance matrix" aria-describedby="cor-metabolites-name" class="cursor-pointer px-3 py-1 border rounded bg-gray-50 hover:bg-gray-100">Choose File</button>
-                        <span id="cor-metabolites-name" aria-live="polite" class="text-gray-500">No file chosen</span>
-                        <input id="cor-metabolites" type="file" accept=".csv,.tsv,.txt" hidden>
-                    </span>
-                </div>
-                <label class="block text-sm font-medium text-gray-700">Target Microbe (Optional)
-                    <input id="cor-microbe-filter" type="text" value="Cyanobacteria" placeholder="Enter a microbe name from the uploaded file" class="mt-2 block w-full text-sm border rounded px-3 py-2">
-                </label>
-                <label class="block text-sm font-medium text-gray-700">Significance Threshold (P-value)
-                    <input id="cor-pthreshold" type="number" min="0" max="1" step="0.001" value="0.05" class="mt-2 block w-full text-sm border rounded px-3 py-2">
-                </label>
-            </div>
-            <div class="mt-4 flex items-center gap-3">
-                <button onclick="runCorrelation()" id="cor-run-btn" class="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 font-medium">Generate ranked results</button>
-                <span id="cor-status" class="text-sm text-gray-600"></span>
-                <a id="cor-download" class="hidden px-4 py-2 bg-green-600 text-white rounded-md text-sm" download>Download results ZIP</a>
-                <a id="cor-ranking" class="hidden px-4 py-2 bg-blue-600 text-white rounded-md text-sm" download>Download ranking CSV</a>
-                <span id="cor-output-location" class="hidden text-xs text-gray-500"></span>
-            </div>
-        </div>
-        
-        <div class="bg-white rounded-lg shadow p-6 mb-6">
-            <h2 class="text-lg font-semibold mb-4">Pipeline Progress</h2>
-            <div class="flex items-center justify-between mb-6">
-                <div class="flex-1" id="step-indicators">
-                    <div class="flex items-center">
-                        <div class="step-dot w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold bg-gray-200 text-gray-600" id="dot-1">1</div>
-                        <div class="flex-1 h-1 bg-gray-200 mx-2" id="line-1"></div>
-                        <div class="step-dot w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold bg-gray-200 text-gray-600" id="dot-2">2</div>
-                        <div class="flex-1 h-1 bg-gray-200 mx-2" id="line-2"></div>
-                        <div class="step-dot w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold bg-gray-200 text-gray-600" id="dot-3">3</div>
-                        <div class="flex-1 h-1 bg-gray-200 mx-2" id="line-3"></div>
-                        <div class="step-dot w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold bg-gray-200 text-gray-600" id="dot-4">4</div>
-                    </div>
-                    <div class="flex justify-between mt-2 text-xs text-gray-500">
-                        <span>M1 Input &amp; RCLR</span>
-                        <span>M2 Root Selection</span>
-                        <span>M3 Interaction Matrix</span>
-                        <span>M4 Trajectory Ranking</span>
+    <main class="mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-8">
+        <div class="ranking-workspace">
+            <div class="ranking-form ranking-panel">
+                <div class="relative mb-6 flex items-center gap-1">
+                    <h1 class="text-xl font-semibold text-gray-900 sm:text-2xl">Correlation ranking</h1>
+                    <div id="ranking-help" class="flex self-stretch items-center">
+                        <button type="button" id="ranking-help-toggle" aria-label="Correlation ranking help" aria-expanded="false" aria-controls="ranking-help-panel" class="flex h-8 w-8 items-center justify-center rounded-full text-indigo-700 hover:bg-indigo-50 focus-visible:outline-indigo-600">
+                            <span aria-hidden="true" class="flex h-5 w-5 items-center justify-center rounded-full border border-current text-sm font-semibold">?</span>
+                        </button>
+                        <section id="ranking-help-panel" aria-labelledby="ranking-help-title" hidden class="absolute left-0 top-full z-10 w-full max-w-sm max-h-[65vh] overflow-y-auto rounded-lg border border-gray-200 bg-white p-4 text-sm leading-5 text-gray-700 shadow-lg">
+                            <h2 id="ranking-help-title" class="font-semibold text-gray-900">HELP</h2>
+                            <p class="mt-2">For each microbe, metabolites with more positive correlations rank higher.</p>
+                            <p class="mt-2"><strong>Input files</strong> &mdash; Upload one microbe abundance table and one metabolite abundance table (CSV or tab-separated text). Put names in the first column and at least three shared sample IDs across the top.</p>
+                            <p class="mt-2"><strong>Results</strong> &mdash; Open <code>correlation_ranking.csv</code> in Candidate evaluation to explore ranks, Spearman correlations and P values. Download <code>trajectory_results.zip</code> for the full results.</p>
+                            <div class="mt-3 border-t border-gray-200 pt-3">
+                                <button type="button" id="help-load-example" class="rounded border border-indigo-300 px-3 py-1.5 font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-50">upload example data</button>
+                            </div>
+                        </section>
                     </div>
                 </div>
+                <div class="upload-fields">
+                    <div class="field-label">Microbes abundance matrix
+                        <span class="file-row">
+                            <button type="button" onclick="document.getElementById('cor-microbes').click()" aria-label="Choose File for microbes abundance matrix" aria-describedby="cor-microbes-name" class="shrink-0 cursor-pointer rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm hover:bg-gray-50">Choose File</button>
+                            <span id="cor-microbes-name" aria-live="polite" class="min-w-0 break-all text-gray-600"></span>
+                            <input id="cor-microbes" type="file" accept=".csv,.tsv,.txt" hidden>
+                        </span>
+                    </div>
+                    <div class="field-label">Metabolites abundance matrix
+                        <span class="file-row">
+                            <button type="button" onclick="document.getElementById('cor-metabolites').click()" aria-label="Choose File for metabolites abundance matrix" aria-describedby="cor-metabolites-name" class="shrink-0 cursor-pointer rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm hover:bg-gray-50">Choose File</button>
+                            <span id="cor-metabolites-name" aria-live="polite" class="min-w-0 break-all text-gray-600"></span>
+                            <input id="cor-metabolites" type="file" accept=".csv,.tsv,.txt" hidden>
+                        </span>
+                    </div>
+                </div>
+                <div class="parameter-fields">
+                    <label class="field-label">Target Microbe (Optional)
+                        <input id="cor-microbe-filter" type="text" placeholder="Microbe name in your table" class="mt-2 block w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm">
+                    </label>
+                    <label class="field-label">Significance Threshold <span class="whitespace-nowrap">(P-value)</span>
+                        <input id="cor-pthreshold" type="number" min="0" max="1" step="0.001" class="mt-2 block w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm">
+                    </label>
+                </div>
+                <div class="mt-6 flex flex-wrap items-center gap-3 border-t border-gray-200 pt-5">
+                    <button onclick="runCorrelation()" id="cor-run-btn" class="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 font-medium">Generate ranked results</button>
+                    <span id="cor-status" role="status" class="min-w-0 break-words text-sm text-gray-600 empty:hidden"></span>
+                </div>
             </div>
-            <div class="text-center">
-                <span class="text-sm font-medium" id="status-text">Status: idle</span>
-            </div>
-        </div>
 
-        
-        <div class="bg-white rounded-lg shadow p-6">
-            <h2 class="text-lg font-semibold mb-4">Log</h2>
-            <pre id="log-output" class="bg-gray-900 text-green-400 p-4 rounded text-sm font-mono h-64 overflow-y-auto">
-Waiting for pipeline run...
-</pre>
+            <div class="ranking-panel">
+                <section id="ranking-monitor" aria-labelledby="progress-title">
+                    <div class="mb-6 flex flex-wrap items-baseline justify-between gap-2">
+                        <h2 id="progress-title" class="text-xl font-semibold text-gray-900 sm:text-2xl">Ranking progress</h2>
+                        <span id="status-text" class="text-xs font-medium text-gray-600" role="status">Status: idle</span>
+                    </div>
+                    <ol id="step-indicators" class="ranking-steps" aria-label="Ranking stages">
+                        <li><span class="step-dot">1</span><span class="step-line" aria-hidden="true"></span><span class="step-label">M1 Input &amp; RCLR</span></li>
+                        <li><span class="step-dot">2</span><span class="step-line" aria-hidden="true"></span><span class="step-label">M2 Root Selection</span></li>
+                        <li><span class="step-dot">3</span><span class="step-line" aria-hidden="true"></span><span class="step-label">M3 Interaction Matrix</span></li>
+                        <li><span class="step-dot">4</span><span class="step-label">M4 Trajectory Ranking</span></li>
+                    </ol>
+                    <h3 id="log-title" class="mb-2.5 mt-7 text-base font-semibold text-gray-900">Log</h3>
+                    <pre id="log-output" aria-labelledby="log-title" tabindex="0" class="rounded-lg bg-gray-900 px-4 py-3.5 font-mono text-[13px] leading-6 text-green-300">Waiting for ranking to start...</pre>
+                </section>
+                <section id="ranking-result" hidden aria-labelledby="ranking-origin">
+                    <h2 id="ranking-origin" class="text-xl font-semibold text-gray-900 sm:text-2xl">Ranking results</h2>
+                    <p id="ranking-caption" class="mt-2 text-sm text-gray-600"></p>
+                    <div id="ranking-table-wrap" class="mt-5 overflow-x-auto rounded-lg border border-gray-200">
+                        <table class="result-table w-full min-w-[26rem] text-left text-sm">
+                            <thead class="bg-gray-50"><tr><th>Rank</th><th>Microbe</th><th>Metabolite</th><th>Spearman ρ</th><th>P value</th></tr></thead>
+                            <tbody id="ranking-preview"></tbody>
+                        </table>
+                    </div>
+                    <div class="mt-5 flex flex-wrap gap-3">
+                        <a id="result-csv" download="correlation_ranking.csv" class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">Download ranking CSV</a>
+                        <a id="cor-download" download class="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Download results ZIP</a>
+                    </div>
+                    <p class="mt-4 text-sm text-gray-600">Upload the ranking CSV to <a href="/candidate-evaluation" class="text-indigo-700 underline">Candidate evaluation</a> to explore the ranked pairs.</p>
+                </section>
+            </div>
         </div>
     </main>
 
     <script>
-    let pollInterval = null;
-    let correlationPoll = null;
+    let exampleInputs = false;
+    const demoMode = new URLSearchParams(location.search).get('demo') === '1';
+    const exampleButton = document.getElementById('help-load-example');
+    const help = document.getElementById('ranking-help');
+    const helpToggle = document.getElementById('ranking-help-toggle');
+    const helpPanel = document.getElementById('ranking-help-panel');
+    let helpPinned = false;
+
+    function setHelpOpen(open) {
+        helpPanel.hidden = !open;
+        helpToggle.setAttribute('aria-expanded', String(open));
+        if (!open) helpPinned = false;
+    }
+
+    help.addEventListener('pointerenter', event => {
+        if (event.pointerType === 'mouse') setHelpOpen(true);
+    });
+    help.addEventListener('pointerleave', event => {
+        if (event.pointerType === 'mouse' && !helpPinned && !helpPanel.contains(document.activeElement)) setHelpOpen(false);
+    });
+    helpToggle.addEventListener('click', () => {
+        helpPinned = !helpPinned;
+        setHelpOpen(helpPinned);
+    });
+    help.addEventListener('focusout', event => {
+        if (!help.contains(event.relatedTarget)) setHelpOpen(false);
+    });
+    document.addEventListener('pointerdown', event => {
+        if (!helpPanel.hidden && !help.contains(event.target)) setHelpOpen(false);
+    });
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && !helpPanel.hidden) {
+            if (helpPanel.contains(document.activeElement)) helpToggle.focus();
+            setHelpOpen(false);
+        }
+    });
+    exampleButton.addEventListener('click', () => {
+        helpToggle.focus();
+        setHelpOpen(false);
+        loadExample();
+    });
+
+    function rankingLabel(value, isMicrobe = false) {
+        let label = String(value ?? '').trim();
+        if (isMicrobe) {
+            const marker = /^rplo\s*(\d+)\b\s*/i.exec(label);
+            if (marker) label = label.slice(marker[0].length) || marker[1];
+        }
+        return label.replace(/[()（）]/g, '').trim();
+    }
+
+    function showRanking(result, jobId, inputLabel) {
+        const rows = result.ranking_preview ?? [];
+        const csvUrl = '/api/correlation/jobs/' + jobId + '/ranking';
+        const body = document.getElementById('ranking-preview');
+        body.replaceChildren();
+        for (const row of rows) {
+            const tr = document.createElement('tr');
+            tr.className = 'border-t border-gray-100';
+            const rho = row.Correlation == null ? '—' : Number(row.Correlation).toFixed(3);
+            const p = row.P_value == null ? '—' : Number(row.P_value).toPrecision(3);
+            const microbe = rankingLabel(row.Microbe, true);
+            const metabolite = rankingLabel(row.Metabolite);
+            for (const value of [row.Rank, microbe, metabolite, rho, p]) {
+                const cell = tr.insertCell();
+                cell.textContent = value;
+            }
+            body.append(tr);
+        }
+        let summary = 'Download the CSV to view the ranking.';
+        if (rows.length) summary = 'Showing ' + rows.length + ' of ' + (result.ranking_rows ?? rows.length) + ' rows';
+        else if (result.ranking_rows === 0) summary = 'No ranked pairs.';
+        document.getElementById('ranking-caption').textContent = inputLabel + ' · ' + summary;
+        document.getElementById('ranking-table-wrap').hidden = rows.length === 0;
+        document.getElementById('result-csv').href = csvUrl;
+        document.getElementById('cor-download').href = result.download;
+        document.getElementById('ranking-monitor').hidden = true;
+        document.getElementById('ranking-result').hidden = false;
+    }
+
+    function resetRanking() {
+        document.getElementById('ranking-result').hidden = true;
+        document.getElementById('ranking-monitor').hidden = false;
+        document.getElementById('ranking-preview').replaceChildren();
+        document.getElementById('result-csv').removeAttribute('href');
+        document.getElementById('cor-download').removeAttribute('href');
+        document.getElementById('cor-status').textContent = '';
+        document.getElementById('log-output').textContent = 'Waiting for ranking to start...';
+        updateProgress('', 'idle');
+    }
 
     for (const name of ['microbes', 'metabolites']) {
         document.getElementById('cor-' + name).addEventListener('change', function () {
-            document.getElementById('cor-' + name + '-name').textContent = this.files[0]?.name || 'No file chosen';
+            document.getElementById('cor-' + name + '-name').textContent = this.files[0]?.name || '';
+            if (exampleInputs) {
+                const other = name === 'microbes' ? 'metabolites' : 'microbes';
+                document.getElementById('cor-' + other).value = '';
+                document.getElementById('cor-' + other + '-name').textContent = '';
+                const target = document.getElementById('cor-microbe-filter');
+                if (target.value === 'Cyanobacteria') target.value = '';
+                const threshold = document.getElementById('cor-pthreshold');
+                if (threshold.value === '0.05') threshold.value = '';
+                exampleInputs = false;
+            }
+            resetRanking();
         });
     }
 
-    async function loadExampleFile(inputId, filename) {
-        const response = await fetch('/api/example-input/' + filename);
-        if (!response.ok) throw new Error('Example input unavailable: ' + filename);
-        const blob = await response.blob();
-        const file = new File([blob], filename, {type: 'text/tab-separated-values'});
-        const input = document.getElementById(inputId);
-        const transfer = new DataTransfer();
-        transfer.items.add(file);
-        input.files = transfer.files;
-        document.getElementById(inputId + '-name').textContent = filename;
+    async function exampleFile(name) {
+        const response = await fetch('/api/example-input/' + name + '.tsv');
+        if (!response.ok) throw new Error('Could not load ' + name + '.tsv');
+        return new File([await response.blob()], name + '.tsv', {type: 'text/tab-separated-values'});
     }
 
-    window.addEventListener('DOMContentLoaded', async () => {
+    async function loadExample() {
+        const runButton = document.getElementById('cor-run-btn');
+        const status = document.getElementById('cor-status');
+        const controls = document.querySelectorAll('#cor-microbes, #cor-metabolites, #cor-microbe-filter, #cor-pthreshold, button[aria-label^="Choose File"]');
+        runButton.disabled = exampleButton.disabled = true;
+        controls.forEach(control => { control.disabled = true; });
+        resetRanking();
+        status.textContent = 'Loading example…';
         try {
-            await Promise.all([
-                loadExampleFile('cor-microbes', 'microbes.tsv'),
-                loadExampleFile('cor-metabolites', 'metabolites.tsv')
+            const [microbes, metabolites] = await Promise.all([
+                exampleFile('microbes'), exampleFile('metabolites')
             ]);
-            document.getElementById('cor-status').textContent = 'Example inputs loaded.';
+            for (const [name, file] of [['microbes', microbes], ['metabolites', metabolites]]) {
+                const transfer = new DataTransfer();
+                transfer.items.add(file);
+                document.getElementById('cor-' + name).files = transfer.files;
+                document.getElementById('cor-' + name + '-name').textContent = file.name;
+            }
+            document.getElementById('cor-microbe-filter').value = 'Cyanobacteria';
+            document.getElementById('cor-pthreshold').value = '0.05';
+            exampleInputs = true;
+            status.textContent = '';
         } catch (error) {
-            document.getElementById('cor-status').textContent = 'Example inputs unavailable; choose files manually.';
+            status.textContent = 'Could not load the example. ' + error.message;
+        } finally {
+            controls.forEach(control => { control.disabled = false; });
+            runButton.disabled = exampleButton.disabled = false;
         }
-    });
+    }
+
+    if (demoMode) loadExample();
 
     async function runCorrelation() {
         const status = document.getElementById('cor-status');
@@ -133,10 +309,16 @@ Waiting for pipeline run...
             if (!file) { status.textContent = 'Please select both abundance matrices.'; return; }
             form.append(name, file);
         }
-        const button = document.getElementById('cor-run-btn'); button.disabled = true; status.textContent = 'Uploading...';
-        document.getElementById('cor-download').classList.add('hidden');
-        document.getElementById('cor-ranking').classList.add('hidden');
-        document.getElementById('cor-output-location').classList.add('hidden');
+        const button = document.getElementById('cor-run-btn');
+        const controls = document.querySelectorAll('#cor-microbes, #cor-metabolites, #cor-microbe-filter, #cor-pthreshold, button[aria-label^="Choose File"]');
+        const setBusy = busy => {
+            controls.forEach(control => { control.disabled = busy; });
+            button.disabled = exampleButton.disabled = busy;
+        };
+        setBusy(true);
+        resetRanking();
+        status.textContent = 'Uploading...';
+        document.getElementById('log-output').textContent = 'Uploading abundance tables…';
         try {
             const filter = document.getElementById('cor-microbe-filter').value.trim();
             const params = new URLSearchParams();
@@ -148,62 +330,68 @@ Waiting for pipeline run...
             params.set('min_dist', '0.5');
             params.set('metric', 'cosine');
             params.set('cluster_res', '0.1');
+            const inputLabel = (filter || 'All microbes') + ' · P threshold ' + params.get('p_threshold');
             const query = '?' + params.toString();
             const response = await fetch('/api/correlation/jobs' + query, {method: 'POST', body: form});
             const data = await response.json();
             if (!response.ok) throw new Error(data.detail || 'Upload failed');
-            const poll = async () => {
-                const result = await (await fetch('/api/correlation/jobs/' + data.job_id)).json();
+            let logOffset = 0;
+            while (true) {
+                const progress = await fetch('/api/correlation/jobs/' + data.job_id + '?log_offset=' + logOffset, {cache: 'no-store'});
+                const result = await progress.json();
+                if (!progress.ok) throw new Error(result.detail || 'Status query failed');
+                appendLog(result.log_lines);
+                const hasMoreLog = result.log_has_more && result.next_log_offset > logOffset;
+                logOffset = result.next_log_offset ?? logOffset;
                 updateProgress(result.progress, result.status);
-                status.textContent = result.status === 'completed' ? `Complete: ${result.coordinate_files} coordinate files, ${result.rows} rows` : (result.error || result.progress || result.status);
+                if (hasMoreLog) continue;
                 if (result.status === 'completed') {
-                    const link = document.getElementById('cor-download'); link.href = result.download; link.classList.remove('hidden');
-                    const location = document.getElementById('cor-output-location');
-                    location.textContent = `Output location: ${result.download} | Job ID: ${data.job_id}`;
-                    location.classList.remove('hidden');
-                    const ranking = document.getElementById('cor-ranking'); ranking.href = '/api/correlation/jobs/' + data.job_id + '/ranking'; ranking.classList.remove('hidden');
-                    button.disabled = false; clearInterval(correlationPoll);
-                } else if (result.status === 'error') { button.disabled = false; clearInterval(correlationPoll); }
-            };
-            correlationPoll = setInterval(() => poll().catch(error => {
-                status.textContent = "Status query failed: " + error.message;
-                button.disabled = false; clearInterval(correlationPoll);
-            }), 3000); await poll();
-        } catch (error) { status.textContent = 'ERROR: ' + error.message; button.disabled = false; }
+                    status.textContent = `Complete: ${result.coordinate_files} coordinate files, ${result.rows} rows`;
+                    showRanking(result, data.job_id, inputLabel);
+                    break;
+                }
+                if (result.status === 'error') {
+                    status.textContent = 'Run failed. See Log for details.';
+                    break;
+                }
+                status.textContent = result.progress || result.status;
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        } catch (error) {
+            status.textContent = 'ERROR: ' + error.message;
+            appendLog([status.textContent]);
+            updateProgress('', 'error');
+        } finally {
+            setBusy(false);
+        }
     }
 
     function updateProgress(progress, state) {
         const stages = [
-            'Validating input tables',
             'Resolving target CAGs and applying CLR',
-            'Selecting roots at P < 0.05 (NArank 1, 2, 3, 5)',
+            'Selecting roots',
             'Building interaction matrices',
-            'Computing configured trajectory configurations per CAG',
-            'Complete'
+            'Computing configured trajectory'
         ];
-        let active = stages.findIndex(label => progress === label);
-        if (state === 'completed') active = stages.length - 1;
-        if (active < 0) return;
-        const step = Math.min(4, Math.max(1, active));
-        for (let i = 1; i <= 4; i++) {
-            const dot = document.getElementById('dot-' + i);
-            if (!dot) continue;
-            const done = i < step || state === 'completed';
-            const current = i === step && state !== 'completed';
-            dot.className = 'step-dot w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold ' +
-                (done ? 'bg-green-500 text-white' : current ? 'bg-indigo-500 text-white animate-pulse' : 'bg-gray-200 text-gray-600');
-            if (i < 4) {
-                const line = document.getElementById('line-' + i);
-                if (line) line.className = 'flex-1 h-1 mx-2 ' + (i < step || state === 'completed' ? 'bg-green-500' : 'bg-gray-200');
-            }
-        }
+        const steps = [...document.querySelectorAll('#step-indicators li')];
+        const current = stages.findIndex(label => progress?.startsWith(label));
+        document.getElementById('status-text').textContent = 'Status: ' + state;
+        steps.forEach((step, index) => {
+            if (state === 'idle') step.dataset.state = '';
+            else if (state === 'completed') step.dataset.state = 'done';
+            else if (state === 'error' && step.dataset.state === 'active') step.dataset.state = 'error';
+            else if (current >= 0) step.dataset.state = index < current ? 'done' : index === current ? 'active' : '';
+            if (step.dataset.state === 'active') step.setAttribute('aria-current', 'step');
+            else step.removeAttribute('aria-current');
+        });
     }
 
-    function appendLog(msg) {
+    function appendLog(lines) {
+        if (!lines?.length) return;
         const log = document.getElementById('log-output');
-        const time = new Date().toLocaleTimeString('en-US');
-        log.textContent += `\n[${time}] ${msg}`;
-        log.scrollTop = log.scrollHeight;
+        const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 8;
+        log.append(document.createTextNode('\n' + lines.join('\n')));
+        if (atBottom) log.scrollTop = log.scrollHeight;
     }
 
     </script>
