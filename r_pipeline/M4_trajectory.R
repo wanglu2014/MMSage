@@ -228,6 +228,7 @@ run_cag <- function(task) {
   log_status <- function(status, tag, message="") {
     line <- paste(status, tag, format(Sys.time(), "%Y-%m-%dT%H:%M:%S"), message, sep="\t")
     cat(line, "\n", file=progress_file, append=TRUE, sep="")
+    base::message(sprintf("M4 %s | %s | %s", cag, tag, status))
   }
 
   raw <- data.table::fread(pluscomb_file, data.table=FALSE, showProgress=FALSE)
@@ -500,7 +501,7 @@ cat("Task workers:", n_workers, "\n")
 
 start_time <- Sys.time()
 if (n_workers > 1L) {
-  cluster <- makeCluster(n_workers)
+  cluster <- makeCluster(n_workers, outfile="")
   clusterExport(
     cluster,
     c(
