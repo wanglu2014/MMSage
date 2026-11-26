@@ -124,7 +124,7 @@ def run_step3(
             'metabolite': item.get('metabolite', cand.get('metabolite', '')),
             'disease': disease,
             'mmsage_norm': mmsage_norm,
-            **({'uploaded_rank': cand['uploaded_rank']} if 'uploaded_rank' in cand else {}),
+            **{key: cand[key] for key in ('uploaded_rank', 'correlation', 'p_value', 'significant') if key in cand},
             'chain_count': chain_count,
             'chain_novelty': chain_novelty,
             'evidence_foundation': evidence_foundation,

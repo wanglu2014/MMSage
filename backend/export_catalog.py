@@ -173,6 +173,7 @@ def archive_run(
         "bacteria_hint": bacteria_hint,
         "bacteria_filter": bacteria_filter,
         "coordinates_file": coord_name,
+        **({"upload_summary": status["upload_summary"]} if status.get("upload_summary") else {}),
         "candidate_count": len(candidates) if isinstance(candidates, list) else 0,
         "archived_files": copied,
         "pipeline_status": status.get("status"),

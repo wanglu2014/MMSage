@@ -142,6 +142,7 @@ def _candidate_names(df: pd.DataFrame, filename: str, *, ranked: bool = False) -
 def process_single_file(
     filepath: str,
     top_n: int = 200,
+    upload_summary: Optional[dict] = None,
 ) -> list:
     fpath = Path(filepath)
     with fpath.open("rb") as stream:
@@ -169,11 +170,34 @@ def process_single_file(
         if not (ranks.ge(0) & np.isfinite(ranks)).all():
             raise ValueError("Invalid CSV format.")
         candidates["uploaded_rank"] = ranks
+        is_correlation_ranking = {"Microbe", "Metabolite", "Rank", "Correlation"}.issubset(df)
+        if is_correlation_ranking:
+            for column, field, low, high in (("Correlation", "correlation", -1, 1), ("P_value", "p_value", 0, 1)):
+                if column in df:
+                    values = pd.to_numeric(df[column], errors="coerce")
+                    if (df[column].notna() & ~values.between(low, high)).any():
+                        raise ValueError(f"{column} must be between {low} and {high}.")
+                    candidates[field] = values.astype(object).where(values.notna(), None)
+            if "Significant" in df:
+                flags = df["Significant"].astype("string").str.strip().str.lower().map(
+                    {"true": True, "false": False, "1": True, "0": False}
+                )
+                if (df["Significant"].notna() & flags.isna()).any():
+                    raise ValueError("Significant must be True or False.")
+                candidates["significant"] = flags.astype(object).where(flags.notna(), None)
         candidates = candidates.sort_values("uploaded_rank", kind="stable").drop_duplicates(["bacteria", "metabolite"])
         if "mmsage_norm" not in candidates:
             # Supply the existing signal axis with an order-preserving percentile.
-            positions = candidates["uploaded_rank"].rank(method="min")
-            candidates["mmsage_norm"] = 1.0 - (positions - 1) / len(candidates)
+            if is_correlation_ranking:
+                groups = candidates.groupby("bacteria")["uploaded_rank"]
+                candidates["mmsage_norm"] = 1.0 - (groups.rank(method="min") - 1) / groups.transform("size")
+            else:
+                positions = candidates["uploaded_rank"].rank(method="min")
+                candidates["mmsage_norm"] = 1.0 - (positions - 1) / len(candidates)
+        if upload_summary is not None:
+            upload_summary.update(input_rows=len(df), unique_pairs=len(candidates),
+                                  analyzed_count=len(candidates.head(top_n)), limit=top_n,
+                                  rank_scope="within_microbe" if is_correlation_ranking else "uploaded")
         return candidates.head(top_n).to_dict(orient="records")
 
     if "mmsage_norm" not in df:
@@ -333,6 +357,7 @@ def run_step1(
     top_n: int = 200,
     bacteria_filter: Optional[str] = None,
     coordinates_file: Optional[str] = None,
+    upload_summary: Optional[dict] = None,
 ) -> list:
     pass
     print("=" * 60)
@@ -340,7 +365,7 @@ def run_step1(
     print("=" * 60)
 
     if coordinates_file:
-        candidates = process_single_file(coordinates_file, top_n)
+        candidates = process_single_file(coordinates_file, top_n, upload_summary)
     else:
         candidates = process_coordinates_dir(coordinates_dir, top_n, bacteria_filter)
 

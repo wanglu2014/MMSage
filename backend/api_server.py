@@ -12,9 +12,9 @@ from typing import Any, Dict, List, Literal, Optional
 from urllib.parse import urlencode
 from uuid import uuid4
 
-from fastapi import FastAPI, BackgroundTasks, Query, UploadFile, File, HTTPException
+from fastapi import FastAPI, BackgroundTasks, Query, Request, UploadFile, File, HTTPException
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse, PlainTextResponse, JSONResponse
+from fastapi.responses import HTMLResponse, FileResponse, PlainTextResponse, JSONResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import networkx as nx
@@ -34,23 +34,21 @@ FRONTEND_DIR = PROJECT_DIR / "frontend"
 AUTO_GML = DATA_DIR / "knowledge_graph" / "auto_built_kg.gml"
 TEST_GML = DATA_DIR / "knowledge_graph" / "ibd_test_kg.gml"
 DEFAULT_GML = AUTO_GML if AUTO_GML.exists() else TEST_GML
+IBD_EXAMPLE_RUN_ID = "run_20260602_164050_akkermansia_muciniph_ibd"
 MAX_COORDINATE_UPLOAD_BYTES = 100 * 1024 * 1024
 DEFAULT_COORDINATES_DIR = str(PROJECT_DIR / "data" / "sample_coordinates")
 DEFAULT_COORDINATES_FILE = str(PROJECT_DIR / "data" / "sample_coordinates" / "pluscombno1V0317_min0_Akkermansia_muciniphila_seed_1_dim_10_neighbor_2_dist_0.4_metric_euclidean_rank_rootknow_cor0303_1_top_50_Pthre_0.1_pair.csv_clu_1_coordinates_tunek.csv")
 
 from runtime_state import (
-    APP_STATE_PATH,
     JOBS_DIR,
     job_dir,
     job_inputs_dir,
     job_output_dir,
     job_status_path,
-    load_app_state,
     load_json as load_runtime_json,
-    save_app_state,
     save_json as save_runtime_json,
 )
-from correlation_job_runner import run_correlation_job
+from correlation_job_runner import append_job_log, read_job_log, run_correlation_job
 from step3_quadrant import sort_run_candidates
 from upload_lease import create_lease, update_lease
 
@@ -103,6 +101,7 @@ async def create_correlation_job(microbes: UploadFile = File(...), metabolites: 
     metabolite_path = inputs / ("metabolites" + Path(_safe_upload_name(metabolites.filename or "metabolites.tsv")).suffix)
     microbe_path.write_bytes(await microbes.read())
     metabolite_path.write_bytes(await metabolites.read())
+    append_job_log(job_id, "Queued")
     save_runtime_json(job_status_path(job_id), {"job_id": job_id, "status": "queued", "progress": "Queued"})
     configuration = {"num_dim": num_dim, "neighbors": neighbors, "min_dist": min_dist, "metric": metric, "cluster_res": cluster_res}
     threading.Thread(target=run_correlation_job, args=(job_id, str(microbe_path), str(metabolite_path), None, None, None, microbe_filter, p_threshold, top_n, configuration), daemon=True).start()
@@ -110,12 +109,14 @@ async def create_correlation_job(microbes: UploadFile = File(...), metabolites: 
 
 
 @app.get("/api/correlation/jobs/{job_id}")
-async def correlation_job_status(job_id: str):
+async def correlation_job_status(job_id: str, log_offset: int | None = Query(default=None, ge=0)):
     if not re.fullmatch(r"corr_[0-9a-f]{12}", job_id):
         raise HTTPException(status_code=404, detail="Correlation job not found")
     status = load_runtime_json(job_status_path(job_id))
     if not isinstance(status, dict):
         raise HTTPException(status_code=404, detail="Correlation job not found")
+    if log_offset is not None:
+        status.update(read_job_log(job_id, log_offset))
     return status
 
 
@@ -264,53 +265,8 @@ def _normalize_edge_relation(
     return relation, False
 
 
-def _load_pipeline_status_from_outputs() -> dict:
-    path = OUTPUTS_DIR / "pipeline_status.json"
-    if not path.exists():
-        return {}
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    return data if isinstance(data, dict) else {}
-
-
-def ensure_default_dashboard_run_id() -> str:
-    state = load_app_state()
-    run_id = state.get("default_dashboard_run_id", "")
-    if run_id:
-        try:
-            from export_catalog import run_dir_path
-
-            if run_dir_path(run_id).is_dir():
-                return run_id
-        except Exception:
-            pass
-
-    try:
-        from export_catalog import archive_run, list_runs
-
-        if (OUTPUTS_DIR / "step3_quadrant.json").exists():
-            status = _load_pipeline_status_from_outputs()
-            disease = status.get("disease") or "IBD"
-            run_id = archive_run(output_dir=str(OUTPUTS_DIR), disease=disease)
-            state["default_dashboard_run_id"] = run_id
-            save_app_state(state)
-            return run_id
-
-        runs = list_runs()
-        if runs:
-            run_id = runs[0].get("run_id", "")
-            if run_id:
-                state["default_dashboard_run_id"] = run_id
-                save_app_state(state)
-                return run_id
-    except Exception:
-        pass
-
-    return ""
-
-
 def resolve_requested_run_id(run_id: str = "") -> str:
-    return run_id or ensure_default_dashboard_run_id()
+    return run_id or IBD_EXAMPLE_RUN_ID
 
 
 def get_run_meta(run_id: str = "") -> dict:
@@ -582,7 +538,7 @@ async def get_agent_evidence(run_id: str = Query(default="")):
 
 
 @app.get("/api/agent/query")
-async def query_agent_evidence(
+def query_agent_evidence(
     bacteria: str = Query(default=""),
     metabolite: str = Query(default=""),
     disease: str = Query(default="IBD"),
@@ -941,7 +897,7 @@ def candidate_agent_graph(bacteria: str, metabolite: str, disease: str, run_id: 
     graph_file = next((graph_dir / name for name in ("knowledge_graph.gml", "auto_built_kg.gml")
                        if (graph_dir / name).is_file()), None)
     # The shipped example predates archiving the GML. Its graph is bundled in data/.
-    if graph_file is None and rid == "run_20260602_164050_akkermansia_muciniph_ibd":
+    if graph_file is None and rid == IBD_EXAMPLE_RUN_ID:
         graph_file = AUTO_GML if AUTO_GML.is_file() else None
     limit = max(0, min(max_neighbors, 12))
     edges = []
@@ -1186,7 +1142,7 @@ async def get_node_evidence(
 @app.get("/api/config")
 async def get_config():
     pass
-    default_run_id = ensure_default_dashboard_run_id()
+    default_run_id = IBD_EXAMPLE_RUN_ID
     return {
         "coordinates_dir": DEFAULT_COORDINATES_DIR,
         "gml_path": str(resolve_gml_path(default_run_id)),
@@ -1206,18 +1162,15 @@ async def get_dual_axis_candidates(run_id: str = Query(default="")):
     import math
 
     resolved_run_id = resolve_requested_run_id(run_id)
-    if run_id:
-        from export_catalog import run_dir_path
+    from export_catalog import run_dir_path
 
-        if run_id != Path(run_id).name or run_id in {".", ".."}:
-            raise HTTPException(status_code=404, detail="Unknown run ID.")
-        quadrants = load_runtime_json(run_dir_path(run_id) / "step3_quadrant.json")
-        if quadrants is None:
-            raise HTTPException(status_code=404, detail="Candidate results for this run are unavailable.")
-        if not isinstance(quadrants, list):
-            raise HTTPException(status_code=500, detail="Invalid candidate results for this run.")
-    else:
-        quadrants = read_json_for_run("step3_quadrant.json", resolved_run_id)
+    if resolved_run_id != Path(resolved_run_id).name or resolved_run_id in {".", ".."}:
+        raise HTTPException(status_code=404, detail="Unknown run ID.")
+    quadrants = load_runtime_json(run_dir_path(resolved_run_id) / "step3_quadrant.json")
+    if quadrants is None:
+        raise HTTPException(status_code=404, detail="Candidate results for this run are unavailable.")
+    if not isinstance(quadrants, list):
+        raise HTTPException(status_code=500, detail="Invalid candidate results for this run.")
     candidates = []
     for q in quadrants:
         bm = q.get("pair_bm_exp", 0)
@@ -1230,7 +1183,7 @@ async def get_dual_axis_candidates(run_id: str = Query(default="")):
             "bacteria": q.get("bacteria", ""),
             "metabolite": q.get("metabolite", ""),
             "mmsage_norm": mms,
-            **({"uploaded_rank": q["uploaded_rank"]} if "uploaded_rank" in q else {}),
+            **{key: q[key] for key in ("uploaded_rank", "correlation", "p_value", "significant") if key in q},
             "chain_count": q.get("chain_count", 0),
             "chain_novelty": q.get("chain_novelty", 1.0),
             "novelty_score": q.get("chain_novelty", 1.0),
@@ -1257,13 +1210,15 @@ async def get_dual_axis_candidates(run_id: str = Query(default="")):
     }
 
     meta = get_run_meta(resolved_run_id)
-    default_run_id = ensure_default_dashboard_run_id()
+    default_run_id = IBD_EXAMPLE_RUN_ID
     return {
         "candidates": candidates,
         "thresholds": thresholds,
         "run_id": resolved_run_id,
         "default_dashboard_run_id": default_run_id,
         "is_default_dashboard_run": resolved_run_id == default_run_id,
+        "upload_summary": meta.get("upload_summary"),
+        "source_file": meta.get("coordinates_file", ""),
         "disease": meta.get("disease", "IBD"),
     }
 
@@ -1762,7 +1717,7 @@ async def catalog_archive_now(disease: str = Query(default="IBD")):
 @app.get("/api/dashboard/default-run")
 async def dashboard_default_run():
     pass
-    run_id = ensure_default_dashboard_run_id()
+    run_id = IBD_EXAMPLE_RUN_ID
     meta = get_run_meta(run_id)
     return {
         "run_id": run_id,
@@ -1772,7 +1727,7 @@ async def dashboard_default_run():
 
 
 
-@app.get("/dashboard", response_class=HTMLResponse)
+@app.get("/candidate-evaluation", response_class=HTMLResponse)
 async def serve_dashboard():
     pass
     path = FRONTEND_DIR / "MMSage_Dashboard.html"
@@ -1788,28 +1743,50 @@ if FRONTEND_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 
 
-@app.get("/", response_class=HTMLResponse)
-async def serve_index():
-    pass
-    index_path = FRONTEND_DIR / "index.html"
-    if index_path.exists():
-        return HTMLResponse(index_path.read_text(encoding='utf-8'))
-    return HTMLResponse("<h1>MMSage x Chain Novelty API</h1><p>Frontend not found. API available at /docs</p>")
+def redirect_page(request: Request, target: str) -> RedirectResponse:
+    if request.url.query:
+        target += "?" + request.url.query
+    return RedirectResponse(target)
+
+
+@app.get("/", response_class=RedirectResponse, status_code=307)
+@app.get("/pipeline", include_in_schema=False)
+async def serve_index(request: Request):
+    return redirect_page(request, "/correlation-ranking")
+
+
+@app.get("/dashboard", include_in_schema=False)
+async def redirect_dashboard(request: Request):
+    return redirect_page(request, "/candidate-evaluation")
 
 
 @app.get("/api/example-input/{filename}")
 async def serve_example_input(filename: str):
     pass
-    allowed = {"microbes.tsv": "microbes.tsv", "metabolites.tsv": "metabolites.tsv"}
+    inputs = PROJECT_DIR / "TreeMM" / "Example" / "input"
+    allowed = ("microbes.tsv", "metabolites.tsv")
+    if filename == "example-inputs.zip":
+        import io
+        from zipfile import ZIP_DEFLATED, ZipFile
+        from fastapi.responses import Response
+
+        archive = io.BytesIO()
+        with ZipFile(archive, "w", compression=ZIP_DEFLATED) as bundle:
+            for name in allowed:
+                if not (inputs / name).is_file():
+                    raise HTTPException(status_code=404, detail="Example input not found")
+                bundle.write(inputs / name, arcname=name)
+        return Response(archive.getvalue(), media_type="application/zip",
+                        headers={"Content-Disposition": 'attachment; filename="example-inputs.zip"'})
     if filename not in allowed:
         raise HTTPException(status_code=404, detail="Example input not found")
-    path = PROJECT_DIR / "TreeMM" / "Example" / "input" / allowed[filename]
+    path = inputs / filename
     if not path.exists():
         raise HTTPException(status_code=404, detail="Example input not found")
     return FileResponse(path, media_type="text/tab-separated-values", filename=filename)
 
 
-@app.get("/pipeline", response_class=HTMLResponse)
+@app.get("/correlation-ranking", response_class=HTMLResponse)
 async def serve_pipeline():
     path = FRONTEND_DIR / "pipeline.html"
     if path.exists():

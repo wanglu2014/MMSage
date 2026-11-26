@@ -91,13 +91,17 @@ def run_pipeline(
     try:
         status["current_step"] = 1
         t0 = time.time()
+        upload_summary = {}
         candidates = run_step1(
             coords,
             step1_out,
             top_n,
             bacteria_filter,
             coordinates_file=coord_file,
+            upload_summary=upload_summary,
         )
+        if upload_summary:
+            status["upload_summary"] = upload_summary
         status["steps"]["step1"] = {
             "status": "completed",
             "candidates": len(candidates),

@@ -4,7 +4,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from runtime_state import job_output_dir, job_status_path, save_json
+from runtime_state import job_dir, job_output_dir, job_status_path, save_json
 import json
 import zipfile
 import pandas as pd
@@ -12,8 +12,35 @@ from scipy.stats import spearmanr
 from reference_inputs import stage_inputs
 
 
-def save_status(path, data):
-    save_json(path, data)
+def write_log_lines(stream, message):
+    for line in message.splitlines():
+        # Keep each UTF-8 record within one polling page, including long R warnings.
+        for start in range(0, len(line), 4096):
+            stream.write(line[start:start + 4096] + "\n")
+
+
+def append_job_log(job_id, message):
+    with (job_dir(job_id) / "ranking.log").open("a", encoding="utf-8", newline="\n") as stream:
+        write_log_lines(stream, message)
+
+
+def read_job_log(job_id, offset):
+    path = job_dir(job_id) / "ranking.log"
+    if not path.is_file():
+        return {"log_lines": [], "next_log_offset": 0, "log_has_more": False}
+    with path.open("rb") as stream:
+        end = stream.seek(0, os.SEEK_END)
+        offset = min(offset, end)
+        stream.seek(offset)
+        page = stream.read(65536)
+    # A writer may still be appending the last line. Return only complete records.
+    length = page.rfind(b"\n") + 1
+    next_offset = offset + length
+    return {
+        "log_lines": page[:length].decode("utf-8", errors="replace").splitlines(),
+        "next_log_offset": next_offset,
+        "log_has_more": length > 0 and next_offset < end,
+    }
 
 
 def run_correlation_job(job_id: str, microbe_path: str, metabolite_path: str,
@@ -25,7 +52,9 @@ def run_correlation_job(job_id: str, microbe_path: str, metabolite_path: str,
     out_dir.mkdir(parents=True, exist_ok=True)
     scripts = Path(__file__).resolve().parents[1] / "r_pipeline"
     def status(state, progress, **fields):
-        save_status(status_path, dict(job_id=job_id, status=state, progress=progress, **fields))
+        message = progress if state != "error" else f"{progress}: {fields['error']}"
+        append_job_log(job_id, message)
+        save_json(status_path, dict(job_id=job_id, status=state, progress=progress, **fields))
     try:
         status("running", "Validating input tables")
         work_dir = out_dir.parent / "analysis"
@@ -33,6 +62,11 @@ def run_correlation_job(job_id: str, microbe_path: str, metabolite_path: str,
         stage_inputs(work_dir, microbe_path, metabolite_path, taxonomy_path, correlation_path, pvalues_path,
                      taxonomy_source=bundled_taxonomy)
         env = os.environ.copy()
+        # Windows R uses the UCRT spelling for the UTF-8 locale.
+        if os.name == "nt":
+            for key in ("LC_ALL", "LC_CTYPE", "LANG"):
+                if env.get(key, "").lower() in ("c.utf-8", "c.utf8"):
+                    env[key] = ".UTF8"
         env["MMSAGE_JOB_DIR"] = str(work_dir)
         env["MMSAGE_OUTPUT_DIR"] = str(out_dir)
         env["MMSAGE_ROOT_P_THRESHOLD"] = str(p_threshold)
@@ -55,19 +89,26 @@ def run_correlation_job(job_id: str, microbe_path: str, metabolite_path: str,
         if check.returncode:
             raise RuntimeError(check.stderr.strip())
         stages = [("M1_targets_clr.R", "Resolving target CAGs and applying CLR"),
-                  ("M2_root_select.R", "Selecting roots at P < 0.05 (NArank 1, 2, 3, 5)"),
+                  ("M2_root_select.R", f"Selecting roots at P < {p_threshold:g} (NArank 1, 2, 3, 5)"),
                   ("M3_pluscombno1.R", "Building interaction matrices"),
                   ("M4_trajectory.R", "Computing configured trajectory configurations per CAG")]
         for script, label in stages:
             status("running", label)
             log = out_dir / (script + ".log")
-            with log.open("w", encoding="utf-8") as stream:
-                process = subprocess.run([rscript, str(scripts / script)], stdout=stream, stderr=subprocess.STDOUT, env=env)
+            with log.open("wb") as stage_log, (job_dir(job_id) / "ranking.log").open(
+                "a", encoding="utf-8", newline="\n", buffering=1
+            ) as live_log, subprocess.Popen(
+                [rscript, str(scripts / script)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env
+            ) as process:
+                for line in process.stdout:
+                    stage_log.write(line)
+                    write_log_lines(live_log, line.decode("utf-8", errors="replace"))
             if process.returncode:
                 raise RuntimeError(script + ": " + log.read_text(encoding="utf-8", errors="replace")[-3000:])
         
         
         
+        status("running", "Ranking microbe-metabolite correlations")
         mic = pd.read_csv(microbe_path, sep=None, engine="python", index_col=0)
         met = pd.read_csv(metabolite_path, sep=None, engine="python", index_col=0)
         shared = [s for s in mic.columns if s in met.columns]
@@ -110,10 +151,14 @@ def run_correlation_job(job_id: str, microbe_path: str, metabolite_path: str,
         for path in coordinates:
             with path.open(encoding="utf-8", newline="") as stream:
                 rows += sum(1 for _ in csv.DictReader(stream))
+        status("running", "Packaging ranking results")
         with zipfile.ZipFile(out_dir / "trajectory_results.zip", "w", zipfile.ZIP_DEFLATED) as bundle:
             for path in [out_dir / "correlation_ranking.csv", out_dir / "trajectory_ranking.csv"] + coordinates + legacy_coordinates + sorted((out_dir / "roots").glob("*.csv")) + sorted((out_dir / "logs").glob("*")) + sorted(out_dir.glob("*.R.log")):
                 if path.is_file():
                     bundle.write(path, path.relative_to(out_dir).as_posix())
-        status("completed", "Complete", rows=rows, coordinate_files=len(coordinates), ranking_file="correlation_ranking.csv", download=f"/api/correlation/jobs/{job_id}/download")
+        status("completed", "Complete", rows=rows, coordinate_files=len(coordinates),
+               ranking_file="correlation_ranking.csv", ranking_rows=len(ranking),
+               ranking_preview=json.loads(ranking.head(5).to_json(orient="records", double_precision=15)),
+               download=f"/api/correlation/jobs/{job_id}/download")
     except Exception as exc:
         status("error", "Failed", error=str(exc))
